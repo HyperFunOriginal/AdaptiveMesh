@@ -20,6 +20,20 @@ inline __host__ __device__ uint ___rgba(const float4 val)
     return (v.w << 24) | (v.z << 16) | (v.y << 8) | v.x;
 }
 template<>
+inline __host__ __device__ uint ___rgba(const float3 val)
+{
+    if (isnan(val.x) || isnan(val.y) || isnan(val.z))
+        return 4294902015u;
+    const uint3 v = make_uint3(clamp(val, 0.f, 1.f) * 255.f);
+    return (255u << 24) | (v.z << 16) | (v.y << 8) | v.x;
+}
+#include "tensors.h"
+template<>
+inline __host__ __device__ uint ___rgba(const compressed_float3 val)
+{
+    return ___rgba((float3)val);
+}
+template<>
 inline __host__ __device__ uint ___rgba(const float val)
 {
     if (isnan(val))

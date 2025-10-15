@@ -16,13 +16,13 @@ __global__ void __init_temp(float* __restrict__ old_d, float* __restrict__ new_d
     true_position += (make_float3(idx) + .5f - (total_size_domain * .5f)) * (outer_size / size_domain) / (1u << depth);
     const uint pos = (node_idx * cells_domain) + (idx.z * total_size_domain + idx.y) * total_size_domain + idx.x;
     
-    old_d[pos] = 1.f / (1.f + length(true_position));
-    new_d[pos] = 1.f / (1.f + length(true_position));
+    old_d[pos] = 1.f / (1.f + 100.f / dot(true_position, true_position));
+    new_d[pos] = 1.f / (1.f + 100.f / dot(true_position, true_position));
 }
 void init_temp(smart_gpu_buffer<float>& old_d, smart_gpu_buffer<float>& new_d, AMR<blank_AMR_data>& amr)
 {
     dim3 threads(32u, 8u, 4u);
-    dim3 blocks(1u, 4u, amr.final_slot_used() * 8u);
+    dim3 blocks(1u, 4u, amr.curr_used_slots() * 8u);
     
     amr.copy_to_gpu();
     __init_temp<<<blocks, threads>>>(old_d.gpu_buffer_ptr, new_d.gpu_buffer_ptr, amr.positions.gpu_buffer_ptr);
@@ -59,11 +59,14 @@ int main()
     smart_gpu_buffer<float> old_d(amr.max_slots * cells_domain), new_d(amr.max_slots * cells_domain);
     init_temp(old_d, new_d, amr);
 
-    copy_boundaries(old_d.gpu_buffer_ptr, new_d.gpu_buffer_ptr, amr, false);
-
-    smart_gpu_cpu_buffer<uint> dat(total_size_domain * total_size_domain * total_size_domain * total_size_domain);
-    save_image(dat, old_d, total_size_domain * total_size_domain, total_size_domain * total_size_domain, "test.png");
-
+    smart_gpu_cpu_buffer<uint> dat(old_d.dedicated_len);
+    save_image(dat, old_d, total_size_domain * total_size_domain, old_d.dedicated_len / (total_size_domain * total_size_domain), "test1.png");
+    cuda_sync();
+    copy_boundaries(old_d, new_d, amr, false);
+    cuda_sync();
+    copy_new_to_old(old_d, new_d, amr);
+    cuda_sync();
+    save_image(dat, old_d, total_size_domain * total_size_domain, old_d.dedicated_len / (total_size_domain * total_size_domain), "test2.png");
 
     while (true)
         _sleep(1000u);

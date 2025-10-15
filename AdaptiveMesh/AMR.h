@@ -192,8 +192,8 @@ public:
 	uint read_first_free_slot() const {
 		return first_free_slot;
 	}
-	uint final_slot_used() const {
-		return final_used_slot;
+	uint curr_used_slots() const {
+		return final_used_slot + 1u;
 	}
 	void add_node(const int parent_idx, const int offset)
 	{
@@ -290,6 +290,36 @@ struct blank_AMR_data
 		AMR<blank_AMR_data>& parent) : parent(parent) {}
 	void node_ctor(const int node_idx) {}
 	void node_dtor(const int node_idx) {}
+	void modify_nodes()
+	{
+
+	}
+	void predictor()
+	{
+
+	}
+	void copy_bounds()
+	{
+
+	}
+	void corrector()
+	{
+
+	}
+	void copy_back()
+	{
+
+	}
+	void timestep() { // Basic form of timestep loop; must be in this exact order.
+		do {
+			copy_back();
+			modify_nodes();
+			predictor();
+			copy_bounds();
+			corrector();
+			parent.increment_timer();
+		} while (parent.timer_helper != 0u);
+	}
 };
 
 struct vector_ptrs
@@ -596,6 +626,7 @@ __inline__ __device__ bool active_depth(const uint substep_index,
 	return (substep_index & ((1u << (max_depth - depth)) - 1u)) == 0u;
 }
 
+
 __device__ constexpr uint threadsD = padding_domain;
 __device__ constexpr uint threadsA()
 {
@@ -640,7 +671,7 @@ __inline__ __device__ T __interpolate_dat(const T* dat_old, const float3& read_p
 
 // Note: all past data must be in dat_old.
 template <class T>
-__global__ void __copy_boundaries_new(T* __restrict__ dat_old, T* __restrict__ dat_new,
+__global__ void __copy_boundaries(T* __restrict__ dat_old, T* __restrict__ dat_new,
 	const domain_boundary* data, const uint substep_index, const uint max_depth, const bool copy_only_new) {
 	uint3 idx = threadIdx + blockDim * blockIdx;
 	uint node_idx = idx.z / (6u * padding_domain);
@@ -719,58 +750,162 @@ struct round_robin_threads {
 };
 
 template <class T, class AMR_data>
-void copy_boundaries(T* old_ptr, T* new_ptr, AMR<AMR_data>& amr, cudaStream_t& stream, bool copy_only_new = true)
+void copy_boundaries(smart_gpu_buffer<T>& old_bfr, smart_gpu_buffer<T>& new_bfr, AMR<AMR_data>& amr, cudaStream_t& stream, bool copy_only_new = true)
 {
 	amr.copy_to_gpu();
 	
 	dim3 threads(threadsA_v, threadsB_v, threadsD);
-	dim3 blocks(size_domain / threads.x, size_domain / threads.y, amr.final_slot_used() * 12u / threads.z);
-	__copy_boundaries_new<<<blocks, threads, 0, stream>>>(old_ptr, new_ptr,
+	dim3 blocks(size_domain / threads.x, size_domain / threads.y, amr.curr_used_slots() * 12u / threads.z);
+	__copy_boundaries<<<blocks, threads, 0, stream>>>(old_bfr.gpu_buffer_ptr, new_bfr.gpu_buffer_ptr,
 		amr.boundaries.gpu_buffer_ptr, amr.timer_helper, amr.read_max_depth(), copy_only_new);
 }
 
 template <class T, class AMR_data>
-void copy_boundaries(T* old_ptr, T* new_ptr, AMR<AMR_data>& amr, bool copy_only_new = true)
+void copy_boundaries(smart_gpu_buffer<T>& old_bfr, smart_gpu_buffer<T>& new_bfr, AMR<AMR_data>& amr, bool copy_only_new = true)
 {
 	amr.copy_to_gpu();
 	
 	dim3 threads(threadsA_v, threadsB_v, threadsD);
-	dim3 blocks(size_domain / threads.x, size_domain / threads.y, amr.final_slot_used() * 12u / threads.z);
-	__copy_boundaries_new<<<blocks, threads>>>(old_ptr, new_ptr,
+	dim3 blocks(size_domain / threads.x, size_domain / threads.y, amr.curr_used_slots() * 12u / threads.z);
+	__copy_boundaries<<<blocks, threads>>>(old_bfr.gpu_buffer_ptr, new_bfr.gpu_buffer_ptr,
 		amr.boundaries.gpu_buffer_ptr, amr.timer_helper, amr.read_max_depth(), copy_only_new);
 }
 
 template <class AMR_data>
 void copy_boundaries(vector_field& old_field, vector_field& new_field, AMR<AMR_data>& amr, round_robin_threads& threads)
 {
-	copy_boundaries(old_field.x.gpu_buffer_ptr, new_field.x.gpu_buffer_ptr, amr, threads.yield_stream());
-	copy_boundaries(old_field.y.gpu_buffer_ptr, new_field.y.gpu_buffer_ptr, amr, threads.yield_stream());
-	copy_boundaries(old_field.z.gpu_buffer_ptr, new_field.z.gpu_buffer_ptr, amr, threads.yield_stream());
+	copy_boundaries(old_field.x, new_field.x, amr, threads.yield_stream());
+	copy_boundaries(old_field.y, new_field.y, amr, threads.yield_stream());
+	copy_boundaries(old_field.z, new_field.z, amr, threads.yield_stream());
 }
 
 template <class AMR_data>
 void copy_boundaries(tensor2_field& old_field, tensor2_field& new_field, AMR<AMR_data>& amr, round_robin_threads& threads)
 {
-	copy_boundaries(old_field.xx.gpu_buffer_ptr, new_field.xx.gpu_buffer_ptr, amr, threads.yield_stream());
-	copy_boundaries(old_field.xy.gpu_buffer_ptr, new_field.xy.gpu_buffer_ptr, amr, threads.yield_stream());
-	copy_boundaries(old_field.xz.gpu_buffer_ptr, new_field.xz.gpu_buffer_ptr, amr, threads.yield_stream());
-	copy_boundaries(old_field.yx.gpu_buffer_ptr, new_field.yx.gpu_buffer_ptr, amr, threads.yield_stream());
-	copy_boundaries(old_field.yy.gpu_buffer_ptr, new_field.yy.gpu_buffer_ptr, amr, threads.yield_stream());
-	copy_boundaries(old_field.yz.gpu_buffer_ptr, new_field.yz.gpu_buffer_ptr, amr, threads.yield_stream());
-	copy_boundaries(old_field.zx.gpu_buffer_ptr, new_field.zx.gpu_buffer_ptr, amr, threads.yield_stream());
-	copy_boundaries(old_field.zy.gpu_buffer_ptr, new_field.zy.gpu_buffer_ptr, amr, threads.yield_stream());
-	copy_boundaries(old_field.zz.gpu_buffer_ptr, new_field.zz.gpu_buffer_ptr, amr, threads.yield_stream());
+	copy_boundaries(old_field.xx, new_field.xx, amr, threads.yield_stream());
+	copy_boundaries(old_field.xy, new_field.xy, amr, threads.yield_stream());
+	copy_boundaries(old_field.xz, new_field.xz, amr, threads.yield_stream());
+	copy_boundaries(old_field.yx, new_field.yx, amr, threads.yield_stream());
+	copy_boundaries(old_field.yy, new_field.yy, amr, threads.yield_stream());
+	copy_boundaries(old_field.yz, new_field.yz, amr, threads.yield_stream());
+	copy_boundaries(old_field.zx, new_field.zx, amr, threads.yield_stream());
+	copy_boundaries(old_field.zy, new_field.zy, amr, threads.yield_stream());
+	copy_boundaries(old_field.zz, new_field.zz, amr, threads.yield_stream());
 }
 
 template <class AMR_data>
 void copy_boundaries(tensor2_sym_field& old_field, tensor2_sym_field& new_field, AMR<AMR_data>& amr, round_robin_threads& threads)
 {
-	copy_boundaries(old_field.xx.gpu_buffer_ptr, new_field.xx.gpu_buffer_ptr, amr, threads.yield_stream());
-	copy_boundaries(old_field.xy.gpu_buffer_ptr, new_field.xy.gpu_buffer_ptr, amr, threads.yield_stream());
-	copy_boundaries(old_field.xz.gpu_buffer_ptr, new_field.xz.gpu_buffer_ptr, amr, threads.yield_stream());
-	copy_boundaries(old_field.yy.gpu_buffer_ptr, new_field.yy.gpu_buffer_ptr, amr, threads.yield_stream());
-	copy_boundaries(old_field.yz.gpu_buffer_ptr, new_field.yz.gpu_buffer_ptr, amr, threads.yield_stream());
-	copy_boundaries(old_field.zz.gpu_buffer_ptr, new_field.zz.gpu_buffer_ptr, amr, threads.yield_stream());
+	copy_boundaries(old_field.xx, new_field.xx, amr, threads.yield_stream());
+	copy_boundaries(old_field.xy, new_field.xy, amr, threads.yield_stream());
+	copy_boundaries(old_field.xz, new_field.xz, amr, threads.yield_stream());
+	copy_boundaries(old_field.yy, new_field.yy, amr, threads.yield_stream());
+	copy_boundaries(old_field.yz, new_field.yz, amr, threads.yield_stream());
+	copy_boundaries(old_field.zz, new_field.zz, amr, threads.yield_stream());
+}
+
+
+__device__ constexpr uint threadsA2 = min_uint(32u, total_size_domain);
+__device__ constexpr uint threadsB2 = min_uint(16u, total_size_domain);
+__device__ constexpr uint threadsD2()
+{
+	for (uint i = 1024u / (threadsA2 * threadsB2); i > 0u; i--)
+		if (total_size_domain % i == 0)
+			return i;
+	return 1u;
+}
+__device__ constexpr uint threadsD2_v = threadsD2();
+
+template <class T>
+__global__ void __copy_new_to_old(T* __restrict__ dat_old, const T* __restrict__ dat_new,
+	const octree_abs_pos* data, const int* children_idxs, const uint substep_index, const uint max_depth) {
+	uint3 idx = threadIdx + blockDim * blockIdx;
+	uint node_idx = idx.z / total_size_domain;
+	idx.z -= node_idx * total_size_domain;
+
+	const int depth = data[node_idx].depth(); if (depth == -1) { return; }
+	if (!active_depth(substep_index, depth, max_depth)) { return; }
+
+	uint3 t = idx - padding_domain;
+	t.x /= (size_domain / 2u);
+	t.y /= (size_domain / 2u);
+	t.z /= (size_domain / 2u);
+	int child_idx = (t.x < 2u && t.y < 2u && t.z < 2u) ? children_idxs[t.x + t.y * 2u + t.z * 4u + node_idx * 8u] : -1;
+	node_idx = node_idx * cells_domain + (idx.z * total_size_domain + idx.y) * total_size_domain + idx.x;
+
+	if (child_idx == -1) // is boundary or has no relevant child
+	{
+		dat_old[node_idx] = dat_new[node_idx];
+		return;
+	}
+
+	idx -= padding_domain; idx *= 2u;
+	idx.x %= size_domain;
+	idx.y %= size_domain;
+	idx.z %= size_domain;
+	idx += padding_domain;
+	child_idx = child_idx * cells_domain + (idx.z * total_size_domain + idx.y) * total_size_domain + idx.x;
+	
+	dat_old[node_idx] = (dat_new[child_idx] + dat_new[child_idx + 1u] 
+		+ dat_new[child_idx + total_size_domain] + dat_new[child_idx + total_size_domain + 1u]
+		+ dat_new[child_idx + total_size_domain * total_size_domain] + dat_new[child_idx + total_size_domain * total_size_domain + 1u] 
+		+ dat_new[child_idx + total_size_domain * total_size_domain + total_size_domain]
+		+ dat_new[child_idx + total_size_domain * total_size_domain + total_size_domain + 1u]) * .125f;
+}
+
+template <class T, class AMR_data>
+void copy_new_to_old(smart_gpu_buffer<T>& old_bfr, const smart_gpu_buffer<T>& new_bfr, AMR<AMR_data>& amr, cudaStream_t& stream)
+{
+	amr.copy_to_gpu();
+	dim3 threads(threadsA2, threadsB2, threadsD2_v);
+	dim3 blocks(total_size_domain / threads.x, total_size_domain / threads.y,
+		amr.curr_used_slots() * total_size_domain / threads.z);
+	__copy_new_to_old<<<blocks, threads, 0, stream>>>(old_bfr.gpu_buffer_ptr, new_bfr.gpu_buffer_ptr,
+		amr.positions.gpu_buffer_ptr, amr.children_idx_b.gpu_buffer_ptr, amr.timer_helper, amr.read_max_depth());
+}
+
+template <class T, class AMR_data>
+void copy_new_to_old(smart_gpu_buffer<T>& old_bfr, const smart_gpu_buffer<T>& new_bfr, AMR<AMR_data>& amr)
+{
+	amr.copy_to_gpu();
+	dim3 threads(threadsA2, threadsB2, threadsD2_v);
+	dim3 blocks(total_size_domain / threads.x, total_size_domain / threads.y,
+		amr.curr_used_slots() * total_size_domain / threads.z);
+	__copy_new_to_old<<<blocks, threads>>>(old_bfr.gpu_buffer_ptr, new_bfr.gpu_buffer_ptr,
+		amr.positions.gpu_buffer_ptr, amr.children_idx_b.gpu_buffer_ptr, amr.timer_helper, amr.read_max_depth());
+}
+
+template <class AMR_data>
+void copy_new_to_old(vector_field& old_field, const vector_field& new_field, AMR<AMR_data>& amr, round_robin_threads& threads)
+{
+	copy_new_to_old(old_field.x, new_field.x, amr, threads.yield_stream());
+	copy_new_to_old(old_field.y, new_field.y, amr, threads.yield_stream());
+	copy_new_to_old(old_field.z, new_field.z, amr, threads.yield_stream());
+}
+
+template <class AMR_data>
+void copy_new_to_old(tensor2_field& old_field, const tensor2_field& new_field, AMR<AMR_data>& amr, round_robin_threads& threads)
+{
+	copy_new_to_old(old_field.xx, new_field.xx, amr, threads.yield_stream());
+	copy_new_to_old(old_field.xy, new_field.xy, amr, threads.yield_stream());
+	copy_new_to_old(old_field.xz, new_field.xz, amr, threads.yield_stream());
+	copy_new_to_old(old_field.yx, new_field.yx, amr, threads.yield_stream());
+	copy_new_to_old(old_field.yy, new_field.yy, amr, threads.yield_stream());
+	copy_new_to_old(old_field.yz, new_field.yz, amr, threads.yield_stream());
+	copy_new_to_old(old_field.zx, new_field.zx, amr, threads.yield_stream());
+	copy_new_to_old(old_field.zy, new_field.zy, amr, threads.yield_stream());
+	copy_new_to_old(old_field.zz, new_field.zz, amr, threads.yield_stream());
+}
+
+template <class AMR_data>
+void copy_new_to_old(tensor2_sym_field& old_field, const tensor2_sym_field& new_field, AMR<AMR_data>& amr, round_robin_threads& threads)
+{
+	copy_new_to_old(old_field.xx, new_field.xx, amr, threads.yield_stream());
+	copy_new_to_old(old_field.xy, new_field.xy, amr, threads.yield_stream());
+	copy_new_to_old(old_field.xz, new_field.xz, amr, threads.yield_stream());
+	copy_new_to_old(old_field.yy, new_field.yy, amr, threads.yield_stream());
+	copy_new_to_old(old_field.yz, new_field.yz, amr, threads.yield_stream());
+	copy_new_to_old(old_field.zz, new_field.zz, amr, threads.yield_stream());
 }
 
 #endif
