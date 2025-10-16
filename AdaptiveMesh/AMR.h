@@ -1,4 +1,4 @@
-#ifndef AMR_H
+#ifndef AMR_H	
 #define AMR_H
 
 #include "image_process.h"
@@ -339,7 +339,7 @@ struct vector_ptrs
 struct vector_field
 {
 	smart_gpu_buffer<float> x, y, z;
-	vector_field(const uint node_slots) : x(node_slots* cells_domain), y(node_slots* cells_domain), z(node_slots* cells_domain) {}
+	vector_field(const uint node_slots, const uint domain_cells = cells_domain) : x(node_slots* domain_cells), y(node_slots* domain_cells), z(node_slots* domain_cells) {}
 	__host__ vector_ptrs ptrs() const {
 		return vector_ptrs(x.gpu_buffer_ptr, y.gpu_buffer_ptr, z.gpu_buffer_ptr);
 	}
@@ -374,15 +374,16 @@ struct tensor2_ptrs
 struct tensor2_field
 {
 	smart_gpu_buffer<float> xx, xy, xz,yx,yy,yz,zx,zy,zz;
-	tensor2_field(const uint node_slots) : xx(node_slots* cells_domain), 
-		xy(node_slots* cells_domain),
-		xz(node_slots* cells_domain), 
-		yx(node_slots* cells_domain),
-		yy(node_slots* cells_domain),
-		yz(node_slots* cells_domain),
-		zx(node_slots* cells_domain),
-		zy(node_slots* cells_domain),
-		zz(node_slots* cells_domain) {}
+	tensor2_field(const uint node_slots, const uint domain_cells = cells_domain) :
+		xx(node_slots* domain_cells),
+		xy(node_slots* domain_cells),
+		xz(node_slots* domain_cells), 
+		yx(node_slots* domain_cells),
+		yy(node_slots* domain_cells),
+		yz(node_slots* domain_cells),
+		zx(node_slots* domain_cells),
+		zy(node_slots* domain_cells),
+		zz(node_slots* domain_cells) {}
 	__host__ tensor2_ptrs ptrs() const {
 		return tensor2_ptrs(xx.gpu_buffer_ptr, xy.gpu_buffer_ptr, xz.gpu_buffer_ptr,
 			yx.gpu_buffer_ptr, yy.gpu_buffer_ptr, yz.gpu_buffer_ptr,
@@ -416,12 +417,13 @@ struct tensor2_sym_ptrs
 struct tensor2_sym_field
 {
 	smart_gpu_buffer<float> xx, xy, xz, yy, yz, zz;
-	tensor2_sym_field(const uint node_slots) : xx(node_slots* cells_domain),
-		xy(node_slots* cells_domain),
-		xz(node_slots* cells_domain),
-		yy(node_slots* cells_domain),
-		yz(node_slots* cells_domain),
-		zz(node_slots* cells_domain) {}
+	tensor2_sym_field(const uint node_slots, const uint domain_cells = cells_domain) : 
+		xx(node_slots* domain_cells),
+		xy(node_slots* domain_cells),
+		xz(node_slots* domain_cells),
+		yy(node_slots* domain_cells),
+		yz(node_slots* domain_cells),
+		zz(node_slots* domain_cells) {}
 	__host__ tensor2_sym_ptrs ptrs() const {
 		return tensor2_sym_ptrs(xx.gpu_buffer_ptr, xy.gpu_buffer_ptr, xz.gpu_buffer_ptr,
 											   yy.gpu_buffer_ptr, yz.gpu_buffer_ptr,
@@ -448,7 +450,8 @@ struct comp_tensor2_ptrs
 struct comp_tensor2_field
 {
 	smart_gpu_buffer<compressed_float3> x, y, z;
-	comp_tensor2_field(const uint node_slots) : x(node_slots* cells_domain), y(node_slots* cells_domain), z(node_slots* cells_domain) {}
+	comp_tensor2_field(const uint node_slots, const uint domain_cells = cells_domain) : 
+		x(node_slots* domain_cells), y(node_slots* domain_cells), z(node_slots* domain_cells) {}
 	comp_tensor2_ptrs ptrs() const {
 		return comp_tensor2_ptrs(x.gpu_buffer_ptr, y.gpu_buffer_ptr, z.gpu_buffer_ptr);
 	}
@@ -472,7 +475,8 @@ struct comp_tensor2_sym_ptrs
 struct comp_tensor2_sym_field
 {
 	smart_gpu_buffer<compressed_float3> diag, off_diag;
-	comp_tensor2_sym_field(const uint node_slots) : diag(node_slots* cells_domain), off_diag(node_slots* cells_domain) {}
+	comp_tensor2_sym_field(const uint node_slots, const uint domain_cells = cells_domain) : 
+		diag(node_slots* domain_cells), off_diag(node_slots* domain_cells) {}
 	comp_tensor2_sym_ptrs ptrs() const {
 		return comp_tensor2_sym_ptrs(diag.gpu_buffer_ptr, off_diag.gpu_buffer_ptr);
 	}
@@ -520,15 +524,16 @@ struct comp_tensor3_ptrs
 struct comp_tensor3_field
 {
 	smart_gpu_buffer<compressed_float3> xx, xy, xz, yx, yy, yz, zx, zy, zz;
-	comp_tensor3_field(const uint node_slots) : xx(node_slots* cells_domain),
-		xy(node_slots* cells_domain),
-		xz(node_slots* cells_domain),
-		yx(node_slots* cells_domain),
-		yy(node_slots* cells_domain),
-		yz(node_slots* cells_domain),
-		zx(node_slots* cells_domain),
-		zy(node_slots* cells_domain),
-		zz(node_slots* cells_domain) {}
+	comp_tensor3_field(const uint node_slots, const uint domain_cells = cells_domain) :
+		xx(node_slots*domain_cells),
+		xy(node_slots*domain_cells),
+		xz(node_slots*domain_cells),
+		yx(node_slots*domain_cells),
+		yy(node_slots*domain_cells),
+		yz(node_slots*domain_cells),
+		zx(node_slots*domain_cells),
+		zy(node_slots*domain_cells),
+		zz(node_slots*domain_cells) {}
 	comp_tensor3_ptrs ptrs() const {
 		return comp_tensor3_ptrs(xx.gpu_buffer_ptr, xy.gpu_buffer_ptr, xz.gpu_buffer_ptr,
 			yx.gpu_buffer_ptr, yy.gpu_buffer_ptr, yz.gpu_buffer_ptr,
@@ -601,12 +606,13 @@ struct comp_tensor3_sym_ptrs
 struct comp_tensor3_sym_field // For christoffel symbols
 {
 	smart_gpu_buffer<compressed_float3> xx, xy, xz, yy, yz, zz;
-	comp_tensor3_sym_field(const uint node_slots) : xx(node_slots* cells_domain),
-		xy(node_slots* cells_domain),
-		xz(node_slots* cells_domain),
-		yy(node_slots* cells_domain),
-		yz(node_slots* cells_domain),
-		zz(node_slots* cells_domain) {}
+	comp_tensor3_sym_field(const uint node_slots, const uint domain_cells = cells_domain) :
+		xx(node_slots* domain_cells),
+		xy(node_slots* domain_cells),
+		xz(node_slots* domain_cells),
+		yy(node_slots* domain_cells),
+		yz(node_slots* domain_cells),
+		zz(node_slots* domain_cells) {}
 	comp_tensor3_sym_ptrs ptrs() const {
 		return comp_tensor3_sym_ptrs(xx.gpu_buffer_ptr, xy.gpu_buffer_ptr, xz.gpu_buffer_ptr,
 			yy.gpu_buffer_ptr, yz.gpu_buffer_ptr,
@@ -630,20 +636,22 @@ __inline__ __device__ bool active_depth(const uint substep_index,
 __device__ constexpr uint threadsD = padding_domain;
 __device__ constexpr uint threadsA()
 {
-	const float tgt_sq = 512.f / threadsD;
-	float guess = size_domain * .5f;
-	guess = .5f * (guess + tgt_sq / guess);
-	guess = .5f * (guess + tgt_sq / guess);
-	guess = .5f * (guess + tgt_sq / guess);
-	uint result = uint(float(size_domain) / guess);
-	return size_domain / (result + (result == 0));
+	float tst = 512.f / threadsD;
+	float g = size_domain;
+	g = (g + tst / g) * .5f;
+	g = (g + tst / g) * .5f;
+	g = (g + tst / g) * .5f;
+	for (uint i = uint(g + 1.f); i > 0u; i--)
+		if (size_domain % i == 0)
+			return i;
+	return 1u;
 }
 __device__ constexpr uint threadsB()
 {
-	float result = 512.f / (threadsD * threadsA());
-	result = float(size_domain) / result;
-	uint temp = uint(result); temp += (result - temp) > 0.f;
-	return size_domain / (temp + (temp == 0u));
+	for (uint i = uint(512.f / (threadsD * threadsA()) + 1.f); i > 0u; i--)
+		if (size_domain % i == 0)
+			return i;
+	return 1u;
 }
 __device__ constexpr uint threadsA_v = threadsA();
 __device__ constexpr uint threadsB_v = threadsB();
@@ -707,7 +715,7 @@ __global__ void __copy_boundaries(T* __restrict__ dat_old, T* __restrict__ dat_n
 	
 	float3 read_pos = (make_float3(write_idx) - padding_domain + .5f) * (1.f / size_domain) - .5f; // source coordinates
 	read_pos = (read_pos * bd.rel_scale()) + bd.rel_pos_t(); // target domain coordinates
-	read_pos = (read_pos + .5f) * size_domain + padding_domain - 0.4999f; // in the target domain index coordinate system
+	read_pos = (read_pos + .5f) * size_domain + padding_domain - 0.5f; // in the target domain index coordinate system
 
 	uint3 read_idx = make_uint3(0u);
 
@@ -755,7 +763,7 @@ void copy_boundaries(smart_gpu_buffer<T>& old_bfr, smart_gpu_buffer<T>& new_bfr,
 	amr.copy_to_gpu();
 	
 	dim3 threads(threadsA_v, threadsB_v, threadsD);
-	dim3 blocks(size_domain / threads.x, size_domain / threads.y, amr.curr_used_slots() * 12u / threads.z);
+	dim3 blocks(size_domain / threads.x, size_domain / threads.y, (amr.curr_used_slots() * 6u * padding_domain) / threads.z);
 	__copy_boundaries<<<blocks, threads, 0, stream>>>(old_bfr.gpu_buffer_ptr, new_bfr.gpu_buffer_ptr,
 		amr.boundaries.gpu_buffer_ptr, amr.timer_helper, amr.read_max_depth(), copy_only_new);
 }
@@ -766,7 +774,7 @@ void copy_boundaries(smart_gpu_buffer<T>& old_bfr, smart_gpu_buffer<T>& new_bfr,
 	amr.copy_to_gpu();
 	
 	dim3 threads(threadsA_v, threadsB_v, threadsD);
-	dim3 blocks(size_domain / threads.x, size_domain / threads.y, amr.curr_used_slots() * 12u / threads.z);
+	dim3 blocks(size_domain / threads.x, size_domain / threads.y, (amr.curr_used_slots() * 6u * padding_domain) / threads.z);
 	__copy_boundaries<<<blocks, threads>>>(old_bfr.gpu_buffer_ptr, new_bfr.gpu_buffer_ptr,
 		amr.boundaries.gpu_buffer_ptr, amr.timer_helper, amr.read_max_depth(), copy_only_new);
 }
@@ -805,11 +813,25 @@ void copy_boundaries(tensor2_sym_field& old_field, tensor2_sym_field& new_field,
 }
 
 
-__device__ constexpr uint threadsA2 = min_uint(32u, total_size_domain);
-__device__ constexpr uint threadsB2 = min_uint(16u, total_size_domain);
+__device__ constexpr uint threadsA2()
+{
+	for (uint i = 32u; i > 0u; i--)
+		if (total_size_domain % i == 0)
+			return i;
+	return 1u;
+}
+__device__ constexpr uint threadsB2()
+{
+	for (uint i = 16u; i > 0u; i--)
+		if (total_size_domain % i == 0)
+			return i;
+	return 1u;
+}
+__device__ constexpr uint threadsA2_v = threadsA2();
+__device__ constexpr uint threadsB2_v = threadsB2();
 __device__ constexpr uint threadsD2()
 {
-	for (uint i = 1024u / (threadsA2 * threadsB2); i > 0u; i--)
+	for (uint i = 1024u / (threadsA2_v * threadsB2_v); i > 0u; i--)
 		if (total_size_domain % i == 0)
 			return i;
 	return 1u;
@@ -857,7 +879,7 @@ template <class T, class AMR_data>
 void copy_new_to_old(smart_gpu_buffer<T>& old_bfr, const smart_gpu_buffer<T>& new_bfr, AMR<AMR_data>& amr, cudaStream_t& stream)
 {
 	amr.copy_to_gpu();
-	dim3 threads(threadsA2, threadsB2, threadsD2_v);
+	dim3 threads(threadsA2_v, threadsB2_v, threadsD2_v);
 	dim3 blocks(total_size_domain / threads.x, total_size_domain / threads.y,
 		amr.curr_used_slots() * total_size_domain / threads.z);
 	__copy_new_to_old<<<blocks, threads, 0, stream>>>(old_bfr.gpu_buffer_ptr, new_bfr.gpu_buffer_ptr,
@@ -868,7 +890,7 @@ template <class T, class AMR_data>
 void copy_new_to_old(smart_gpu_buffer<T>& old_bfr, const smart_gpu_buffer<T>& new_bfr, AMR<AMR_data>& amr)
 {
 	amr.copy_to_gpu();
-	dim3 threads(threadsA2, threadsB2, threadsD2_v);
+	dim3 threads(threadsA2_v, threadsB2_v, threadsD2_v);
 	dim3 blocks(total_size_domain / threads.x, total_size_domain / threads.y,
 		amr.curr_used_slots() * total_size_domain / threads.z);
 	__copy_new_to_old<<<blocks, threads>>>(old_bfr.gpu_buffer_ptr, new_bfr.gpu_buffer_ptr,
@@ -907,5 +929,200 @@ void copy_new_to_old(tensor2_sym_field& old_field, const tensor2_sym_field& new_
 	copy_new_to_old(old_field.yz, new_field.yz, amr, threads.yield_stream());
 	copy_new_to_old(old_field.zz, new_field.zz, amr, threads.yield_stream());
 }
+
+__device__ constexpr uint threadsA3()
+{
+	for (uint i = 32u; i > 0u; i--)
+		if (size_domain % i == 0)
+			return i;
+	return 1u;
+}
+__device__ constexpr uint threadsB3()
+{
+	for (uint i = 32u; i > 0u; i--)
+		if (size_domain % i == 0)
+			return i;
+	return 1u;
+}
+__device__ constexpr uint threadsA3_v = threadsA3();
+__device__ constexpr uint threadsB3_v = threadsB3();
+__device__ constexpr uint threadsD3()
+{
+	for (uint i = 1024u / (threadsA3_v * threadsB3_v); i > 0u; i--)
+		if (size_domain % i == 0)
+			return i;
+	return 1u;
+}
+__device__ constexpr uint threadsD3_v = threadsD3();
+
+__device__ constexpr float central_finite_differences[15] = { -.5f, 0.f, .5f,
+															   1.f / 12, -2.f / 3, 0.f, 2.f / 3, -1.f / 12,
+															  -1.f / 60, 3.f / 20, -3.f / 4, 0.f, 3.f / 4, -3.f / 20, 1.f / 60 };;
+
+__device__ constexpr float central_finite_differences_2[15] = { 1.f, -2.f, 1.f,
+															    -1.f / 12, 4.f / 3, -5.f / 2, 4.f / 3, -1.f / 12,
+															    1.f / 90, -3.f / 20, 3.f / 2, -49.f / 18, 3.f / 2, -3.f / 20, 1.f / 90 };;
+
+__global__ void __differentiate(const float* field, compressed_float3* dif,
+	const octree_abs_pos* data, const uint substep_index, const uint max_depth, const int global_seed) {
+	uint3 idx = threadIdx + blockDim * blockIdx;
+	const uint node_idx = idx.z / size_domain;
+
+	const int depth = data[node_idx].depth(); if (depth == -1) { return; }
+	if (!active_depth(substep_index, depth, max_depth)) { return; }
+
+	fast_prng rng = fast_prng(global_seed + idx.x * 2178614);
+	rng.seed ^= rng.generate_int() * idx.y;
+	rng.seed ^= rng.generate_int() * idx.z;
+
+	idx.z -= node_idx * size_domain;
+	int read_write_idx = ((node_idx * total_size_domain + idx.z) * total_size_domain + idx.y) * total_size_domain 
+		+ idx.x + padding_domain * (1u + total_size_domain + total_size_domain * total_size_domain);
+	
+	float x = 0.f, y = 0.f, z = 0.f;
+	for (int i = -padding_domain; i <= int(padding_domain); i++)
+	{
+		x += field[read_write_idx + i] * central_finite_differences[(padding_domain * padding_domain + padding_domain - 1u) + i];
+		y += field[read_write_idx + i * total_size_domain] * central_finite_differences[(padding_domain * padding_domain + padding_domain - 1u) + i];
+		z += field[read_write_idx + i * total_size_domain * total_size_domain] * central_finite_differences[(padding_domain * padding_domain + padding_domain - 1u) + i];
+	}
+
+	float dx_1 = (1u << depth) / outer_dx; x *= dx_1; y *= dx_1; z *= dx_1;
+	dif[((node_idx * size_domain + idx.z) * size_domain + idx.y) 
+		* size_domain + idx.x] = compressed_float3(make_float3(x, y, z), rng);
+}
+
+__global__ void __differentiate(const float* field, compressed_float3* dif, compressed_float3* d2if,
+	const octree_abs_pos* data, const uint substep_index, const uint max_depth, const int global_seed) {
+	uint3 idx = threadIdx + blockDim * blockIdx;
+	const uint node_idx = idx.z / size_domain;
+
+	const int depth = data[node_idx].depth(); if (depth == -1) { return; }
+	if (!active_depth(substep_index, depth, max_depth)) { return; }
+
+	fast_prng rng = fast_prng(global_seed + idx.x * 2178614);
+	rng.seed ^= rng.generate_int() * idx.y;
+	rng.seed ^= rng.generate_int() * idx.z;
+
+	idx.z -= node_idx * size_domain;
+	int read_write_idx = ((node_idx * total_size_domain + idx.z) * total_size_domain + idx.y) * total_size_domain
+		+ idx.x + padding_domain * (1u + total_size_domain + total_size_domain * total_size_domain);
+
+	float x = 0.f, y = 0.f, z = 0.f;
+	float xx = 0.f, yy = 0.f, zz = 0.f;
+	for (int i = -padding_domain; i <= int(padding_domain); i++)
+	{
+		float a = field[read_write_idx + i];
+		x += a * central_finite_differences[(padding_domain * padding_domain + padding_domain - 1u) + i];
+		xx += a * central_finite_differences_2[(padding_domain * padding_domain + padding_domain - 1u) + i];
+		
+		a = field[read_write_idx + i * total_size_domain];
+		y += a * central_finite_differences[(padding_domain * padding_domain + padding_domain - 1u) + i];
+		yy += a * central_finite_differences_2[(padding_domain * padding_domain + padding_domain - 1u) + i];
+		
+		a = field[read_write_idx + i * total_size_domain * total_size_domain];
+		z += a * central_finite_differences[(padding_domain * padding_domain + padding_domain - 1u) + i];
+		zz += a * central_finite_differences_2[(padding_domain * padding_domain + padding_domain - 1u) + i];
+	}
+
+	float dx_1 = (1u << depth) / outer_dx; x *= dx_1; y *= dx_1; z *= dx_1;
+	xx *= dx_1 * dx_1; yy *= dx_1 * dx_1; zz *= dx_1 * dx_1;
+	read_write_idx = ((node_idx * size_domain + idx.z) * size_domain + idx.y) * size_domain + idx.x;
+	d2if[read_write_idx] = compressed_float3(make_float3(xx, yy, zz), rng);
+	dif[read_write_idx] = compressed_float3(make_float3(x, y, z), rng);
+}
+
+__inline__ __device__ float __mixed_partial_c(const float* field, const int read_write_idx, const int dx, const int dy)
+{
+	return .25f * (field[read_write_idx + dx + dy] + field[read_write_idx - dx - dy]
+		- field[read_write_idx + dx - dy] - field[read_write_idx - dx + dy]);
+}
+__inline__ __device__ float __mixed_partial_bd(const float* field, const int read_write_idx, const int dx, const int dy)
+{
+	return field[read_write_idx] + .5f * (field[read_write_idx + dx + dy] + field[read_write_idx - dx - dy]
+		- field[read_write_idx - dx] - field[read_write_idx + dx] - field[read_write_idx - dy] - field[read_write_idx + dy]);
+}
+
+__global__ void __mixed_partials(const float* field, compressed_float3* didjf_off_diag,
+	const octree_abs_pos* data, const uint substep_index, const uint max_depth, const int global_seed) {
+	uint3 idx = threadIdx + blockDim * blockIdx;
+	const uint node_idx = idx.z / size_domain;
+
+	const int depth = data[node_idx].depth(); if (depth == -1) { return; }
+	if (!active_depth(substep_index, depth, max_depth)) { return; }
+
+	fast_prng rng = fast_prng(global_seed + idx.x * 2178614);
+	rng.seed ^= rng.generate_int() * idx.y;
+	rng.seed ^= rng.generate_int() * idx.z;
+
+	idx.z -= node_idx * size_domain;
+	int read_write_idx = ((node_idx * total_size_domain + idx.z) * total_size_domain + idx.y) * total_size_domain
+		+ idx.x + padding_domain * (1u + total_size_domain + total_size_domain * total_size_domain);
+
+	int edge_offset_x = int(idx.x) - int(clamp(idx.x, 1u, size_domain - 2u));
+	int edge_offset_y = int(idx.y) - int(clamp(idx.y, 1u, size_domain - 2u));
+	int edge_offset_z = int(idx.z) - int(clamp(idx.z, 1u, size_domain - 2u));
+
+	int condition_xy = edge_offset_x * edge_offset_y;
+	int condition_xz = edge_offset_x * edge_offset_z;
+	int condition_yz = edge_offset_y * edge_offset_z;
+
+	float xy = (condition_xy == 0) ? __mixed_partial_c(field, read_write_idx, 1, total_size_domain)
+		: (-condition_xy * __mixed_partial_bd(field, read_write_idx, -condition_xy, total_size_domain));
+	float xz = (condition_xz == 0) ? __mixed_partial_c(field, read_write_idx, 1, total_size_domain * total_size_domain)
+		: (-condition_xz * __mixed_partial_bd(field, read_write_idx, -condition_xz, total_size_domain * total_size_domain));
+	float yz = (condition_yz == 0) ? __mixed_partial_c(field, read_write_idx, total_size_domain, total_size_domain * total_size_domain)
+		: (-condition_yz * __mixed_partial_bd(field, read_write_idx, -condition_yz * total_size_domain, total_size_domain * total_size_domain));
+
+	float dx_1 = (1u << depth) / outer_dx; dx_1 *= dx_1;
+	didjf_off_diag[((node_idx * size_domain + idx.z) * size_domain + idx.y)
+		* size_domain + idx.x] = compressed_float3(make_float3(xy, xz, yz) * dx_1, rng);
+}
+
+template <class AMR_data>
+void mixed_partials(const smart_gpu_buffer<float>& field, smart_gpu_buffer<compressed_float3>& didjf_off_diag,
+	AMR<AMR_data>& amr, cudaStream_t& stream, const int global_seed = 11278413)
+{
+	amr.copy_to_gpu();
+	dim3 threads(threadsA3_v, threadsB3_v, threadsD3_v);
+	dim3 blocks(size_domain / threads.x, size_domain / threads.y,
+		amr.curr_used_slots() * size_domain / threads.z);
+	__mixed_partials<<<blocks, threads, 0, stream>>>(field.gpu_buffer_ptr, didjf_off_diag.gpu_buffer_ptr,
+		amr.positions.gpu_buffer_ptr, amr.timer_helper, amr.read_max_depth(), global_seed);
+}
+
+template <class AMR_data>
+void differentiate(const smart_gpu_buffer<float>& field, smart_gpu_buffer<compressed_float3>& dif,
+	AMR<AMR_data>& amr, cudaStream_t& stream, const int global_seed = 11278413)
+{
+	amr.copy_to_gpu();
+	dim3 threads(threadsA3_v, threadsB3_v, threadsD3_v);
+	dim3 blocks(size_domain / threads.x, size_domain / threads.y,
+		amr.curr_used_slots() * size_domain / threads.z);
+	__differentiate<<<blocks, threads, 0, stream>>>(field.gpu_buffer_ptr, dif.gpu_buffer_ptr,
+		amr.positions.gpu_buffer_ptr, amr.timer_helper, amr.read_max_depth(), global_seed);
+}
+
+template <class AMR_data>
+void differentiate(const smart_gpu_buffer<float>& field, smart_gpu_buffer<compressed_float3>& dif,
+	smart_gpu_buffer<compressed_float3>& d2if, AMR<AMR_data>& amr, cudaStream_t& stream, const int global_seed = 11278413)
+{
+	amr.copy_to_gpu();
+	dim3 threads(threadsA3_v, threadsB3_v, threadsD3_v);
+	dim3 blocks(size_domain / threads.x, size_domain / threads.y,
+		amr.curr_used_slots() * size_domain / threads.z);
+	__differentiate<<<blocks, threads, 0, stream>>>(field.gpu_buffer_ptr, dif.gpu_buffer_ptr, d2if.gpu_buffer_ptr,
+		amr.positions.gpu_buffer_ptr, amr.timer_helper, amr.read_max_depth(), global_seed);
+}
+
+template <class AMR_data>
+void yield_first_second_derivs(const smart_gpu_buffer<float>& field, smart_gpu_buffer<compressed_float3>& gradient,
+	comp_tensor2_sym_field& hessian, AMR<AMR_data>& amr, round_robin_threads& threads, const int global_seed = 11278413)
+{
+	fast_prng rng = fast_prng(global_seed);
+	differentiate(field, gradient, hessian.diag, amr, threads.yield_stream(), rng.generate_int());
+	mixed_partials(field, hessian.off_diag, amr, threads.yield_stream(), rng.generate_int());
+}
+
 
 #endif

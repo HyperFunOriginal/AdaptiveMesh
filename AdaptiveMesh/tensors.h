@@ -250,7 +250,7 @@ __inline__ __host__ __device__ void tracefree_covar(float3x3& covar, const float
 
 #define MANTISSA_BITS 8u
 #define SHARED_EXPONENT (32u - 3u * (MANTISSA_BITS + 1u))
-#define SHARED_EXPONENT_OFFSET (1u << (SHARED_EXPONENT - 1u))
+#define SHARED_EXPONENT_OFFSET ((1u << (SHARED_EXPONENT - 1u)) - 1u)
 
 #define MANTISSA_MASK   ((1u << MANTISSA_BITS) - 1u)
 #define EXPONENT_MASK   ((1u << SHARED_EXPONENT) - 1u)
@@ -269,7 +269,7 @@ struct ALIGN_BYTES(4) fast_prng
 {
     int seed;
 
-    fast_prng(int seed = 12894712) : seed(seed) {}
+    __inline__ __host__ __device__ fast_prng(int seed = 12894712) : seed(seed) {}
     __inline__ __host__ __device__ int generate_int() {
         seed += 1124781675;
         seed ^= seed >> 7;
@@ -329,7 +329,7 @@ public:
         float3 result = float3();
         uint* f1 = (uint*)(&result.x);
 
-        *f1 = (IEEE754_FLOAT_EXPONENT_OFFSET + exponent() - SHARED_EXPONENT_OFFSET) << IEEE754_FLOAT_MANTISSA_BITS;
+        *f1 = (IEEE754_FLOAT_EXPONENT_OFFSET - SHARED_EXPONENT_OFFSET + exponent()) << IEEE754_FLOAT_MANTISSA_BITS;
         result.z = result.y = result.x;
 
         result.x *= mts1() * (1.f - 2.f * sign1()) * compr_relative_error;
@@ -343,31 +343,45 @@ public:
         uint* f1 = (uint*)(&result.x);
         uint* f2 = (uint*)(&result.y);
         uint* f3 = (uint*)(&result.z);
-        data = max_uint(((*f1) >> IEEE754_FLOAT_MANTISSA_BITS) & ((1u << IEEE754_FLOAT_EXPONENT_BITS) - 1u),
+
+        data = min_uint(max_uint(max_uint(((*f1) >> IEEE754_FLOAT_MANTISSA_BITS) & ((1u << IEEE754_FLOAT_EXPONENT_BITS) - 1u),
             max_uint(((*f2) >> IEEE754_FLOAT_MANTISSA_BITS) & ((1u << IEEE754_FLOAT_EXPONENT_BITS) - 1u),
-            ((*f3) >> IEEE754_FLOAT_MANTISSA_BITS) & ((1u << IEEE754_FLOAT_EXPONENT_BITS) - 1u))) 
-            - (IEEE754_FLOAT_EXPONENT_OFFSET - SHARED_EXPONENT_OFFSET);
+            ((*f3) >> IEEE754_FLOAT_MANTISSA_BITS) & ((1u << IEEE754_FLOAT_EXPONENT_BITS) - 1u))), 
+            IEEE754_FLOAT_EXPONENT_OFFSET - SHARED_EXPONENT_OFFSET) - (IEEE754_FLOAT_EXPONENT_OFFSET - SHARED_EXPONENT_OFFSET),
+            (1u << SHARED_EXPONENT) - 1u);
+
         result.x *= ((1u << SHARED_EXPONENT_OFFSET) / compr_relative_error) / (float(1u << data));
         result.y *= ((1u << SHARED_EXPONENT_OFFSET) / compr_relative_error) / (float(1u << data));
         result.z *= ((1u << SHARED_EXPONENT_OFFSET) / compr_relative_error) / (float(1u << data)); 
-        data <<= EXP_POS; data |= (uint)(fabsf(result.x + rng.generate_float01()) + .5f) + ((result.x < 0) << SIGN1_POS);
-        data |= ((uint)(fabsf(result.y) + rng.generate_float01() + .5f) << MANTISSA2_POS) + ((result.y < 0) << SIGN2_POS);
-        data |= ((uint)(fabsf(result.z) + rng.generate_float01() + .5f) << MANTISSA3_POS) + ((result.z < 0) << SIGN3_POS);
+
+        result.x += rng.generate_float();
+        result.y += rng.generate_float();
+        result.z += rng.generate_float();
+
+        result = clamp(result, 1.f - 2.f / compr_relative_error, 2.f / compr_relative_error - 1.f);
+        data <<= EXP_POS; data |= uint(fabsf(result.x) + .5f) | ((result.x < 0.f) << SIGN1_POS);
+        data |= (uint(fabsf(result.y) + .5f) << MANTISSA2_POS) | ((result.y < 0.f) << SIGN2_POS);
+        data |= (uint(fabsf(result.z) + .5f) << MANTISSA3_POS) | ((result.z < 0.f) << SIGN3_POS);
     }
     __inline__ __host__ __device__ compressed_float3(float3 result) : data(0) {
         uint* f1 = (uint*)(&result.x);
         uint* f2 = (uint*)(&result.y);
         uint* f3 = (uint*)(&result.z);
-        data = max_uint(((*f1) >> IEEE754_FLOAT_MANTISSA_BITS) & ((1u << IEEE754_FLOAT_EXPONENT_BITS) - 1u),
+
+        data = min_uint(max_uint(max_uint(((*f1) >> IEEE754_FLOAT_MANTISSA_BITS) & ((1u << IEEE754_FLOAT_EXPONENT_BITS) - 1u),
             max_uint(((*f2) >> IEEE754_FLOAT_MANTISSA_BITS) & ((1u << IEEE754_FLOAT_EXPONENT_BITS) - 1u),
-                ((*f3) >> IEEE754_FLOAT_MANTISSA_BITS) & ((1u << IEEE754_FLOAT_EXPONENT_BITS) - 1u)))
-            - (IEEE754_FLOAT_EXPONENT_OFFSET - SHARED_EXPONENT_OFFSET);
+                ((*f3) >> IEEE754_FLOAT_MANTISSA_BITS) & ((1u << IEEE754_FLOAT_EXPONENT_BITS) - 1u))),
+            IEEE754_FLOAT_EXPONENT_OFFSET - SHARED_EXPONENT_OFFSET) - (IEEE754_FLOAT_EXPONENT_OFFSET - SHARED_EXPONENT_OFFSET),
+            (1u << SHARED_EXPONENT) - 1u);
+
         result.x *= ((1u << SHARED_EXPONENT_OFFSET) / compr_relative_error) / (float(1u << data));
         result.y *= ((1u << SHARED_EXPONENT_OFFSET) / compr_relative_error) / (float(1u << data));
         result.z *= ((1u << SHARED_EXPONENT_OFFSET) / compr_relative_error) / (float(1u << data));
-        data <<= EXP_POS; data |= (uint)(fabsf(result.x) + .5f) + ((result.x < 0) << SIGN1_POS);
-        data |= ((uint)(fabsf(result.y) + .5f) << MANTISSA2_POS) + ((result.y < 0) << SIGN2_POS);
-        data |= ((uint)(fabsf(result.z) + .5f) << MANTISSA3_POS) + ((result.z < 0) << SIGN3_POS);
+
+        result = clamp(result, 1.f - 2.f / compr_relative_error, 2.f / compr_relative_error - 1.f);
+        data <<= EXP_POS; data |= uint(fabsf(result.x) + .5f) + ((result.x < 0.f) << SIGN1_POS);
+        data |= (uint(fabsf(result.y) + .5f) << MANTISSA2_POS) + ((result.y < 0.f) << SIGN2_POS);
+        data |= (uint(fabsf(result.z) + .5f) << MANTISSA3_POS) + ((result.z < 0.f) << SIGN3_POS);
     }
 };
 
