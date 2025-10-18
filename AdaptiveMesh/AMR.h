@@ -1,6 +1,7 @@
 #ifndef AMR_H	
 #define AMR_H
 
+
 #include "image_process.h"
 #include <stdio.h>
 #include "tensors.h"
@@ -10,6 +11,7 @@ __device__ constexpr float outer_size = 100.f;
 __device__ constexpr uint size_domain = 28u;
 __device__ constexpr uint padding_domain = 2u;
 __device__ constexpr uint total_size_domain = size_domain + 2u * padding_domain;
+__device__ constexpr uint inner_cells_domain = size_domain * size_domain * size_domain;
 __device__ constexpr uint cells_domain = total_size_domain * total_size_domain * total_size_domain;
 __device__ constexpr float outer_dx = outer_size / size_domain;
 __device__ constexpr float outer_dt = outer_dx * .4f; // CFL 0.4
@@ -741,14 +743,21 @@ __global__ void __copy_boundaries(T* __restrict__ dat_old, T* __restrict__ dat_n
 
 struct round_robin_threads {
 	cudaStream_t streams[8];
-	uint current_stream;
-	round_robin_threads() : current_stream(0u) {
+	uint current_stream_idx;
+
+	round_robin_threads() : current_stream_idx(0u) {
 		for (int i = 0; i < 8; i++)
 			cudaStreamCreate(streams + i);
 	}
+	const cudaStream_t& current_stream() const {
+		return streams[current_stream_idx & 7u];
+	}
+	const cudaStream_t& next_stream() const {
+		return streams[(current_stream_idx + 1u) & 7u];
+	}
 	cudaStream_t& yield_stream() {
-		current_stream &= 7u;
-		return streams[current_stream++];
+		current_stream_idx &= 7u;
+		return streams[current_stream_idx++];
 	}
 	~round_robin_threads()
 	{
@@ -930,6 +939,8 @@ void copy_new_to_old(tensor2_sym_field& old_field, const tensor2_sym_field& new_
 	copy_new_to_old(old_field.zz, new_field.zz, amr, threads.yield_stream());
 }
 
+// Note: All derivatives and derived objects only lie in size_domain³ cells, and their buffers taken on such sidelengths
+
 __device__ constexpr uint threadsA3()
 {
 	for (uint i = 32u; i > 0u; i--)
@@ -1081,48 +1092,156 @@ __global__ void __mixed_partials(const float* field, compressed_float3* didjf_of
 
 template <class AMR_data>
 void mixed_partials(const smart_gpu_buffer<float>& field, smart_gpu_buffer<compressed_float3>& didjf_off_diag,
-	AMR<AMR_data>& amr, cudaStream_t& stream, const int global_seed = 11278413)
+	AMR<AMR_data>& amr, cudaStream_t& stream, fast_prng& rng)
 {
 	amr.copy_to_gpu();
 	dim3 threads(threadsA3_v, threadsB3_v, threadsD3_v);
 	dim3 blocks(size_domain / threads.x, size_domain / threads.y,
 		amr.curr_used_slots() * size_domain / threads.z);
 	__mixed_partials<<<blocks, threads, 0, stream>>>(field.gpu_buffer_ptr, didjf_off_diag.gpu_buffer_ptr,
-		amr.positions.gpu_buffer_ptr, amr.timer_helper, amr.read_max_depth(), global_seed);
+		amr.positions.gpu_buffer_ptr, amr.timer_helper, amr.read_max_depth(), rng.generate_int());
 }
 
 template <class AMR_data>
 void differentiate(const smart_gpu_buffer<float>& field, smart_gpu_buffer<compressed_float3>& dif,
-	AMR<AMR_data>& amr, cudaStream_t& stream, const int global_seed = 11278413)
+	AMR<AMR_data>& amr, cudaStream_t& stream, fast_prng& rng)
 {
 	amr.copy_to_gpu();
 	dim3 threads(threadsA3_v, threadsB3_v, threadsD3_v);
 	dim3 blocks(size_domain / threads.x, size_domain / threads.y,
 		amr.curr_used_slots() * size_domain / threads.z);
 	__differentiate<<<blocks, threads, 0, stream>>>(field.gpu_buffer_ptr, dif.gpu_buffer_ptr,
-		amr.positions.gpu_buffer_ptr, amr.timer_helper, amr.read_max_depth(), global_seed);
+		amr.positions.gpu_buffer_ptr, amr.timer_helper, amr.read_max_depth(), rng.generate_int());
 }
 
 template <class AMR_data>
 void differentiate(const smart_gpu_buffer<float>& field, smart_gpu_buffer<compressed_float3>& dif,
-	smart_gpu_buffer<compressed_float3>& d2if, AMR<AMR_data>& amr, cudaStream_t& stream, const int global_seed = 11278413)
+	smart_gpu_buffer<compressed_float3>& d2if, AMR<AMR_data>& amr, cudaStream_t& stream, fast_prng& rng)
 {
 	amr.copy_to_gpu();
 	dim3 threads(threadsA3_v, threadsB3_v, threadsD3_v);
 	dim3 blocks(size_domain / threads.x, size_domain / threads.y,
 		amr.curr_used_slots() * size_domain / threads.z);
 	__differentiate<<<blocks, threads, 0, stream>>>(field.gpu_buffer_ptr, dif.gpu_buffer_ptr, d2if.gpu_buffer_ptr,
-		amr.positions.gpu_buffer_ptr, amr.timer_helper, amr.read_max_depth(), global_seed);
+		amr.positions.gpu_buffer_ptr, amr.timer_helper, amr.read_max_depth(), rng.generate_int());
 }
 
 template <class AMR_data>
 void yield_first_second_derivs(const smart_gpu_buffer<float>& field, smart_gpu_buffer<compressed_float3>& gradient,
-	comp_tensor2_sym_field& hessian, AMR<AMR_data>& amr, round_robin_threads& threads, const int global_seed = 11278413)
+	comp_tensor2_sym_field& hessian, AMR<AMR_data>& amr, round_robin_threads& threads, fast_prng& rng)
 {
-	fast_prng rng = fast_prng(global_seed);
-	differentiate(field, gradient, hessian.diag, amr, threads.yield_stream(), rng.generate_int());
-	mixed_partials(field, hessian.off_diag, amr, threads.yield_stream(), rng.generate_int());
+	differentiate(field, gradient, hessian.diag, amr, threads.yield_stream(), rng);
+	mixed_partials(field, hessian.off_diag, amr, threads.yield_stream(), rng);
 }
+
+// Numerical Relativity
+
+__global__ void __deriv_trace(const comp_tensor2_sym_ptrs hessian, const tensor2_sym_ptrs metric_tensor,
+	float* deriv_trace, const octree_abs_pos* data, const uint substep_index, const uint max_depth) {
+	
+	uint3 idx = threadIdx + blockDim * blockIdx;
+	const uint node_idx = idx.z / size_domain;
+	idx.z -= node_idx * size_domain;
+
+	const int depth = data[node_idx].depth(); if (depth == -1) { return; }
+	if (!active_depth(substep_index, depth, max_depth)) { return; }
+	int read_write_idx = ((node_idx * total_size_domain + idx.z) * total_size_domain + idx.y) * total_size_domain
+		+ idx.x + padding_domain * (1u + total_size_domain + total_size_domain * total_size_domain);
+
+	const float3x3_sym inv_metric = metric_tensor.tens(read_write_idx).inverse();
+	read_write_idx = ((node_idx * size_domain + idx.z) * size_domain + idx.y) * size_domain + idx.x;
+	deriv_trace[read_write_idx] = trace_contra(hessian.tens(read_write_idx), inv_metric);
+}
+
+template <class AMR_data>
+void scalar_laplacian_noncovariant(const smart_gpu_buffer<float>& field, const tensor2_sym_field& metric_tensor, smart_gpu_buffer<compressed_float3>& gradient_out,
+	comp_tensor2_sym_field& hessian_intermediate, smart_gpu_buffer<float>& laplacian, AMR<AMR_data>& amr, cudaStream_t& stream, fast_prng& rng)
+{
+	differentiate(field, gradient_out, hessian_intermediate.diag, amr, stream, rng);
+	mixed_partials(field, hessian_intermediate.off_diag, amr, stream, rng);
+
+	dim3 threads(threadsA3_v, threadsB3_v, threadsD3_v);
+	dim3 blocks(size_domain / threads.x, size_domain / threads.y,
+		amr.curr_used_slots() * size_domain / threads.z);
+	__deriv_trace<<<blocks, threads, 0, stream>>>(hessian_intermediate.ptrs(), metric_tensor.ptrs(),
+		laplacian.gpu_buffer_ptr, amr.positions.gpu_buffer_ptr, amr.timer_helper, amr.read_max_depth());
+}
+
+template <class AMR_data>
+void metric_derivatives_noncovariant(const tensor2_sym_field& metric_tensor, comp_tensor3_sym_field& metric_derivative,
+	comp_tensor2_sym_field& hessian_int1, comp_tensor2_sym_field& hessian_int2, tensor2_sym_field& metric_laplacian,
+	AMR<AMR_data>& amr, round_robin_threads& streams, fast_prng& rng) {
+
+	cudaStream_t& stream_1 = streams.yield_stream();
+	cudaStream_t& stream_2 = streams.yield_stream();
+
+	scalar_laplacian_noncovariant<AMR_data>(metric_tensor.xx, metric_tensor, metric_derivative.xx, hessian_int1, metric_laplacian.xx, amr, stream_1, rng);
+	scalar_laplacian_noncovariant<AMR_data>(metric_tensor.xy, metric_tensor, metric_derivative.xy, hessian_int2, metric_laplacian.xy, amr, stream_2, rng);
+	scalar_laplacian_noncovariant<AMR_data>(metric_tensor.xz, metric_tensor, metric_derivative.xz, hessian_int1, metric_laplacian.xz, amr, stream_1, rng);
+	scalar_laplacian_noncovariant<AMR_data>(metric_tensor.yy, metric_tensor, metric_derivative.yy, hessian_int2, metric_laplacian.yy, amr, stream_2, rng);
+	scalar_laplacian_noncovariant<AMR_data>(metric_tensor.yz, metric_tensor, metric_derivative.yz, hessian_int1, metric_laplacian.yz, amr, stream_1, rng);
+	scalar_laplacian_noncovariant<AMR_data>(metric_tensor.zz, metric_tensor, metric_derivative.zz, hessian_int2, metric_laplacian.zz, amr, stream_2, rng);
+	cuda_sync();
+}
+
+struct BSSN_AMR_data
+{
+	fast_prng rng;
+	AMR<BSSN_AMR_data>& parent;
+	round_robin_threads streams;
+
+	// fields
+	tensor2_sym_field cyij_old;
+	tensor2_sym_field cyij_new;
+
+	// derivatives
+	comp_tensor3_sym_field cyij_k;
+	tensor2_sym_field cRij;
+	comp_tensor2_sym_field didjA; // used as intermediate to start
+	comp_tensor2_sym_field didjW; // used as intermediate to start
+
+	BSSN_AMR_data(const uint node_slots, AMR<BSSN_AMR_data>& parent) : parent(parent), streams(),
+		cyij_old(node_slots), cyij_new(node_slots), cyij_k(node_slots, inner_cells_domain), rng(),
+		cRij(node_slots, inner_cells_domain), didjA(node_slots, inner_cells_domain),
+		didjW(node_slots, inner_cells_domain) {}
+
+	void copy_back()
+	{
+		cuda_sync();
+		copy_new_to_old(cyij_old, cyij_new, parent, streams);
+	}
+	void node_ctor(const int node_idx) {}
+	void node_dtor(const int node_idx) {}
+	void modify_nodes()
+	{
+
+	}
+	void predictor()
+	{
+		cuda_sync();
+		metric_derivatives_noncovariant(cyij_old, cyij_k, didjA, didjW, cRij, parent, streams, rng);
+	}
+	void copy_bounds()
+	{
+		cuda_sync();
+		copy_boundaries<BSSN_AMR_data>(cyij_old, cyij_new, parent, streams);
+	}
+	void corrector()
+	{
+		cuda_sync();
+		metric_derivatives_noncovariant(cyij_new, cyij_k, didjA, didjW, cRij, parent, streams, rng);
+	}
+	void timestep() { // Basic form of timestep loop; must be in this exact order.
+		do {
+			copy_back();
+			modify_nodes();
+			predictor();
+			copy_bounds();
+			corrector();
+			parent.increment_timer();
+		} while (parent.timer_helper != 0u);
+	}
+};
 
 
 #endif

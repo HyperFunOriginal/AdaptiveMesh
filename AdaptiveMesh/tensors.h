@@ -235,6 +235,10 @@ __inline__ __host__ __device__ float trace_contra(const float3x3& contra, const 
         contra.yz * metric.yz + contra.zy * metric.yz +
         contra.zz * metric.zz;
 }
+__inline__ __host__ __device__ float trace_contra(const float3x3_sym& contra, const float3x3_sym& metric) {
+    return contra.xx * metric.xx + contra.yy * metric.yy + contra.zz * metric.zz 
+        + (contra.xy * metric.xy + contra.xz * metric.xz + contra.yz * metric.yz) * 2.f;
+}
 __inline__ __host__ __device__ void tracefree_contra(float3x3& contra, const float3x3_sym& metric) {
     float trace_factor = trace_contra(contra, metric) / 3.f;
     contra -= metric.inverse() * trace_factor;

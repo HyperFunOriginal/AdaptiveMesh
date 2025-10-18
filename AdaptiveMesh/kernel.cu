@@ -5,7 +5,7 @@
 #include <chrono>
 #include "tensors.h"
 
-__global__ void __init_temp(float* __restrict__ old_d, float* __restrict__ new_d, const octree_abs_pos* positions)
+__global__ void __init_temp(float* __restrict__ old_d, float* __restrict__ new_d, const octree_abs_pos* positions, float mul)
 {
     uint3 idx = threadIdx + blockDim * blockIdx;
     uint node_idx = idx.z / total_size_domain; 
@@ -16,16 +16,19 @@ __global__ void __init_temp(float* __restrict__ old_d, float* __restrict__ new_d
     true_position += (make_float3(idx) + .5f - (total_size_domain * .5f)) * (outer_size / size_domain) / (1u << depth);
     const uint pos = (node_idx * cells_domain) + (idx.z * total_size_domain + idx.y) * total_size_domain + idx.x;
     
-    old_d[pos] = 1.f / length(true_position);
-    new_d[pos] = 1.f / length(true_position);
+    //old_d[pos] = 1.f / length(true_position);
+    //new_d[pos] = 1.f / length(true_position);
+    old_d[pos] = 1.f / (1.f + mul / dot(true_position, true_position));
+    new_d[pos] = 1.f / (1.f + mul / dot(true_position, true_position));
 }
-void init_temp(smart_gpu_buffer<float>& old_d, smart_gpu_buffer<float>& new_d, AMR<blank_AMR_data>& amr)
+template <class T>
+void init_temp(smart_gpu_buffer<float>& old_d, smart_gpu_buffer<float>& new_d, AMR<T>& amr, float mul)
 {
     dim3 threads(32u, 8u, 4u);
     dim3 blocks(1u, 4u, amr.curr_used_slots() * 8u);
     
     amr.copy_to_gpu();
-    __init_temp<<<blocks, threads>>>(old_d.gpu_buffer_ptr, new_d.gpu_buffer_ptr, amr.positions.gpu_buffer_ptr);
+    __init_temp<<<blocks, threads>>>(old_d.gpu_buffer_ptr, new_d.gpu_buffer_ptr, amr.positions.gpu_buffer_ptr, mul);
 }
 
 int main()
@@ -38,7 +41,7 @@ int main()
         return 1;
     }
 
-    AMR<blank_AMR_data> amr = AMR<blank_AMR_data>(128u);
+    AMR<BSSN_AMR_data> amr = AMR<BSSN_AMR_data>(128u);
     int children[8];
     
     for (uint c = 0; c < 8; c++)
@@ -55,21 +58,38 @@ int main()
             children[c] = new_idx;
         }
 
-    round_robin_threads threads;
-    std::cout << amr.to_string_debug();
-    smart_gpu_buffer<float> old_d(amr.max_slots * cells_domain), new_d(amr.max_slots * cells_domain);
-    smart_gpu_buffer<compressed_float3> deriv(amr.max_slots * size_domain * size_domain * size_domain);
-    init_temp(old_d, new_d, amr);
+    round_robin_threads threads; fast_prng rng;
+    std::cout << amr.to_string_debug() + "\n\n";
 
+    // dumb init for testing
+    init_temp(amr.sim_data.cyij_old.xx, amr.sim_data.cyij_new.xx, amr, 3);
+    init_temp(amr.sim_data.cyij_old.yy, amr.sim_data.cyij_new.yy, amr, 5);
+    init_temp(amr.sim_data.cyij_old.zz, amr.sim_data.cyij_new.zz, amr, 7);
+
+    memset_gpu_typepun<float, float>(amr.sim_data.cyij_old.xy, 0.f);
+    memset_gpu_typepun<float, float>(amr.sim_data.cyij_old.xz, 0.f);
+    memset_gpu_typepun<float, float>(amr.sim_data.cyij_old.yz, 0.f);
+
+    memset_gpu_typepun<float, float>(amr.sim_data.cyij_new.xy, 0.f);
+    memset_gpu_typepun<float, float>(amr.sim_data.cyij_new.xz, 0.f);
+    memset_gpu_typepun<float, float>(amr.sim_data.cyij_new.yz, 0.f);
+
+    amr.sim_data.timestep();
+    std::chrono::steady_clock clock;
     cuda_sync();
-    copy_boundaries(old_d, new_d, amr, false); // too inaccurate
+    long long now = clock.now().time_since_epoch().count();
+    amr.sim_data.timestep();
     cuda_sync();
-    copy_new_to_old(old_d, new_d, amr);
-    cuda_sync();
-    mixed_partials(old_d, deriv, amr, threads.yield_stream());
-    cuda_sync();
-    smart_gpu_cpu_buffer<uint> dat(deriv.dedicated_len);
-    save_image(dat, deriv, size_domain * size_domain, deriv.dedicated_len / (size_domain * size_domain), "test.png");
+    long long now2 = clock.now().time_since_epoch().count();
+    std::cout << (now2 - now) * 1E-9;
+
+    smart_gpu_cpu_buffer<uint> temp(amr.sim_data.cRij.xx.dedicated_len);
+    save_image(temp, amr.sim_data.cRij.xx, size_domain * size_domain, temp.dedicated_len / (size_domain * size_domain), "test_xx.png");
+    save_image(temp, amr.sim_data.cRij.xy, size_domain * size_domain, temp.dedicated_len / (size_domain * size_domain), "test_xy.png");
+    save_image(temp, amr.sim_data.cRij.xz, size_domain * size_domain, temp.dedicated_len / (size_domain * size_domain), "test_xz.png");
+    save_image(temp, amr.sim_data.cRij.yy, size_domain * size_domain, temp.dedicated_len / (size_domain * size_domain), "test_yy.png");
+    save_image(temp, amr.sim_data.cRij.yz, size_domain * size_domain, temp.dedicated_len / (size_domain * size_domain), "test_yz.png");
+    save_image(temp, amr.sim_data.cRij.zz, size_domain * size_domain, temp.dedicated_len / (size_domain * size_domain), "test_zz.png");
 
     while (true)
         _sleep(1000u);
