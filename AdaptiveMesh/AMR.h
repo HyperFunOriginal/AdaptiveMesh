@@ -1,7 +1,7 @@
 #ifndef AMR_H	
 #define AMR_H
 
-
+#define USE_LAGRANGE_POLYNOMIAL
 #include "image_process.h"
 #include <stdio.h>
 #include "tensors.h"
@@ -658,6 +658,102 @@ __device__ constexpr uint threadsB()
 __device__ constexpr uint threadsA_v = threadsA();
 __device__ constexpr uint threadsB_v = threadsB();
 
+#ifdef USE_LAGRANGE_POLYNOMIAL
+
+template <class T>
+__inline__ __device__ T __interpolate_dat(const T* dat_old, const float3& read_pos, const uint3& read_idx, const uint& read_idx_n)
+{
+	T f = dat_old[read_idx_n];
+	T fx = dat_old[read_idx_n + 1u];
+	T fy = dat_old[read_idx_n + total_size_domain];
+	T fz = dat_old[read_idx_n + total_size_domain * total_size_domain];
+	T fxx = dat_old[read_idx_n - 1u];
+	T fyy = dat_old[read_idx_n - total_size_domain];
+	T fzz = dat_old[read_idx_n - total_size_domain * total_size_domain];
+
+	T fxy = dat_old[read_idx_n + total_size_domain + 1u];
+	T fxz = dat_old[read_idx_n + total_size_domain * total_size_domain + 1u];
+	T fyz = dat_old[read_idx_n + total_size_domain * total_size_domain + total_size_domain];
+
+	fxy += f - fx - fy;
+	fxz += f - fx - fz;
+	fyz += f - fy - fz;
+	fx = (fx - fxx) * .5f;
+	fy = (fy - fyy) * .5f;
+	fz = (fz - fzz) * .5f;
+	fxx = fx + fxx - f;
+	fyy = fy + fyy - f;
+	fzz = fz + fzz - f;
+
+	return f + (fx + fxx * read_pos.x) * read_pos.x + (fy + fyy * read_pos.y) * read_pos.y + (fz + fzz * read_pos.z) * read_pos.z
+		+ fxy * read_pos.x * read_pos.y + fxz * read_pos.x * read_pos.z + fyz * read_pos.y * read_pos.z;
+}
+
+// Note: all past data must be in dat_old.
+template <class T>
+__global__ void __copy_boundaries(T* __restrict__ dat_old, T* __restrict__ dat_new,
+	const domain_boundary* data, const uint substep_index, const uint max_depth, const bool copy_only_new) {
+	uint3 idx = threadIdx + blockDim * blockIdx;
+	uint node_idx = idx.z / (6u * padding_domain);
+	uint dir_idx = idx.z - node_idx * (6u * padding_domain);
+	dir_idx /= padding_domain; idx.z %= padding_domain;
+
+	const domain_boundary bd = data[node_idx * 6u + dir_idx];
+	if (bd.target_idx() == -1 || bd.curr_depth() <= 0) { return; }
+	if (!active_depth(substep_index, bd.curr_depth(), max_depth)) { return; }
+
+	uint3 write_idx;
+	switch (dir_idx)
+	{
+	case 0:
+		write_idx = zxy(idx) + make_uint3(padding_domain + size_domain, padding_domain, padding_domain);
+		break;
+	case 1:
+		write_idx = xzy(idx) + make_uint3(padding_domain, padding_domain + size_domain, padding_domain);
+		break;
+	case 2:
+		write_idx = idx + make_uint3(padding_domain, padding_domain, padding_domain + size_domain);
+		break;
+	case 3:
+		write_idx = zxy(idx) + make_uint3(0u, padding_domain, padding_domain);
+		break;
+	case 4:
+		write_idx = xzy(idx) + make_uint3(padding_domain, 0u, padding_domain);
+		break;
+	case 5:
+		write_idx = idx + make_uint3(padding_domain, padding_domain, 0u);
+		break;
+	}
+
+	float3 read_pos = (make_float3(write_idx) - padding_domain + .5f) * (1.f / size_domain) - .5f; // source coordinates
+	read_pos = (read_pos * bd.rel_scale()) + bd.rel_pos_t(); // target domain coordinates
+	read_pos = (read_pos + .5f) * size_domain + padding_domain - 0.5f; // in the target domain index coordinate system
+
+	uint3 read_idx = make_uint3(0u);
+
+	if (bd.target_idx() == 0) // allow boundary
+		read_idx = make_uint3(min_uint(fmaxf(read_pos.x, 1) + .5f, total_size_domain - 2u),
+			min_uint(fmaxf(read_pos.y, 1) + .5f, total_size_domain - 2u),
+			min_uint(fmaxf(read_pos.z, 1) + .5f, total_size_domain - 2u));
+	else // disallow boundary
+		read_idx = make_uint3(min_uint(fmaxf(read_pos.x, 1 + padding_domain) + .5f, total_size_domain - padding_domain - 2u),
+			min_uint(fmaxf(read_pos.y, 1 + padding_domain) + .5f, total_size_domain - padding_domain - 2u),
+			min_uint(fmaxf(read_pos.z, 1 + padding_domain) + .5f, total_size_domain - padding_domain - 2u));
+
+	uint read_idx_n = bd.target_idx() * cells_domain + read_idx.x + (read_idx.y + read_idx.z * total_size_domain) * total_size_domain;
+	read_pos.x -= read_idx.x; read_pos.y -= read_idx.y; read_pos.z -= read_idx.z;
+
+	float2 time = relative_time(substep_index, bd, max_depth);
+	T old_d = __interpolate_dat<T>(dat_old, read_pos, read_idx, read_idx_n);
+	T new_d = __interpolate_dat<T>(dat_new, read_pos, read_idx, read_idx_n);
+	uint write_idx_n = node_idx * cells_domain + write_idx.x + (write_idx.y + write_idx.z * total_size_domain) * total_size_domain;
+
+	if (!copy_only_new) { dat_old[write_idx_n] = old_d * (1.f - time.x) + new_d * time.x; }
+	dat_new[write_idx_n] = old_d * (1.f - time.y) + new_d * time.y;
+}
+
+#else
+
 template <class T>
 __inline__ __device__ T __interpolate_dat(const T* dat_old, const float3& read_pos, const uint3& read_idx, const uint& read_idx_n)
 {
@@ -722,13 +818,13 @@ __global__ void __copy_boundaries(T* __restrict__ dat_old, T* __restrict__ dat_n
 	uint3 read_idx = make_uint3(0u);
 
 	if (bd.target_idx() == 0) // allow boundary
-		read_idx = make_uint3(min_uint(fmaxf(read_pos.x, 0.5f), total_size_domain - 2u),
-						min_uint(fmaxf(read_pos.y, 0.5f), total_size_domain - 2u),
-						min_uint(fmaxf(read_pos.z, 0.5f), total_size_domain - 2u));
+		read_idx = make_uint3(min_uint(fmaxf(read_pos.x, .5f), total_size_domain - 2u),
+						min_uint(fmaxf(read_pos.y, .5f), total_size_domain - 2u),
+						min_uint(fmaxf(read_pos.z, .5f), total_size_domain - 2u));
 	else // disallow boundary
 		read_idx = make_uint3(min_uint(fmaxf(read_pos.x, 0.5f + padding_domain), total_size_domain - padding_domain - 2u),
-			min_uint(fmaxf(read_pos.y, 0.5f + padding_domain), total_size_domain - padding_domain - 2u),
-			min_uint(fmaxf(read_pos.z, 0.5f + padding_domain), total_size_domain - padding_domain - 2u));
+			min_uint(fmaxf(read_pos.y, .5f + padding_domain), total_size_domain - padding_domain - 2u),
+			min_uint(fmaxf(read_pos.z, .5f + padding_domain), total_size_domain - padding_domain - 2u));
 
 	uint read_idx_n = bd.target_idx() * cells_domain + read_idx.x + (read_idx.y + read_idx.z * total_size_domain) * total_size_domain;
 
@@ -740,6 +836,8 @@ __global__ void __copy_boundaries(T* __restrict__ dat_old, T* __restrict__ dat_n
 	if (!copy_only_new) { dat_old[write_idx_n] = old_d * (1.f - time.x) + new_d * time.x; }
 	dat_new[write_idx_n] = old_d * (1.f - time.y) + new_d * time.y;
 }
+
+#endif // USE_LAGRANGE_POLYNOMIAL
 
 struct round_robin_threads {
 	cudaStream_t streams[8];

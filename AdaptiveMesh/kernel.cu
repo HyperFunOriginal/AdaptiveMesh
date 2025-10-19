@@ -12,14 +12,23 @@ __global__ void __init_temp(float* __restrict__ old_d, float* __restrict__ new_d
     idx.z -= node_idx * total_size_domain;
 
     const int depth = positions[node_idx].depth(); if (depth == -1) { return; }
+    if (depth > 0) {
+        if (idx.x < padding_domain || idx.x >= size_domain + padding_domain) { return; }
+        if (idx.y < padding_domain || idx.y >= size_domain + padding_domain) { return; }
+        if (idx.z < padding_domain || idx.z >= size_domain + padding_domain) { return; }
+    }
     float3 true_position = positions[node_idx].absolute_central_position();
     true_position += (make_float3(idx) + .5f - (total_size_domain * .5f)) * (outer_size / size_domain) / (1u << depth);
     const uint pos = (node_idx * cells_domain) + (idx.z * total_size_domain + idx.y) * total_size_domain + idx.x;
     
     //old_d[pos] = 1.f / length(true_position);
     //new_d[pos] = 1.f / length(true_position);
-    old_d[pos] = 1.f / (1.f + mul / dot(true_position, true_position));
-    new_d[pos] = 1.f / (1.f + mul / dot(true_position, true_position));
+    
+    old_d[pos] = mul + sinf(length(true_position)) * .25f;
+    new_d[pos] = mul + sinf(length(true_position)) * .25f;
+
+    //old_d[pos] = 1.f / (1.f + mul / dot(true_position, true_position));
+    //new_d[pos] = 1.f / (1.f + mul / dot(true_position, true_position));
 }
 template <class T>
 void init_temp(smart_gpu_buffer<float>& old_d, smart_gpu_buffer<float>& new_d, AMR<T>& amr, float mul)
@@ -62,17 +71,12 @@ int main()
     std::cout << amr.to_string_debug() + "\n\n";
 
     // dumb init for testing
-    init_temp(amr.sim_data.cyij_old.xx, amr.sim_data.cyij_new.xx, amr, 3);
-    init_temp(amr.sim_data.cyij_old.yy, amr.sim_data.cyij_new.yy, amr, 5);
-    init_temp(amr.sim_data.cyij_old.zz, amr.sim_data.cyij_new.zz, amr, 7);
-
-    memset_gpu_typepun<float, float>(amr.sim_data.cyij_old.xy, 0.f);
-    memset_gpu_typepun<float, float>(amr.sim_data.cyij_old.xz, 0.f);
-    memset_gpu_typepun<float, float>(amr.sim_data.cyij_old.yz, 0.f);
-
-    memset_gpu_typepun<float, float>(amr.sim_data.cyij_new.xy, 0.f);
-    memset_gpu_typepun<float, float>(amr.sim_data.cyij_new.xz, 0.f);
-    memset_gpu_typepun<float, float>(amr.sim_data.cyij_new.yz, 0.f);
+    init_temp(amr.sim_data.cyij_old.xx, amr.sim_data.cyij_new.xx, amr, 1.f);
+    init_temp(amr.sim_data.cyij_old.yy, amr.sim_data.cyij_new.yy, amr, 1.f);
+    init_temp(amr.sim_data.cyij_old.zz, amr.sim_data.cyij_new.zz, amr, 1.f);
+    init_temp(amr.sim_data.cyij_old.xy, amr.sim_data.cyij_new.xy, amr, 0.f);
+    init_temp(amr.sim_data.cyij_old.xz, amr.sim_data.cyij_new.xz, amr, 0.f);
+    init_temp(amr.sim_data.cyij_old.yz, amr.sim_data.cyij_new.yz, amr, 0.f);
 
     amr.sim_data.timestep();
     std::chrono::steady_clock clock;
