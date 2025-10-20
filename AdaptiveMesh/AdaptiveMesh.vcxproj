@@ -89,12 +89,14 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="AMR.h" />
+    <ClInclude Include="BSSN.h" />
     <ClInclude Include="CUDA_memory.h" />
     <ClInclude Include="helper_math.h" />
     <ClInclude Include="image_process.h" />
     <ClInclude Include="io_helper.h" />
     <ClInclude Include="lodepng.h" />
     <ClInclude Include="parallel.h" />
+    <ClInclude Include="SimpleWave.h" />
     <ClInclude Include="tensors.h" />
   </ItemGroup>
   <ItemGroup>
