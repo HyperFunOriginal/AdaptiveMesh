@@ -135,7 +135,7 @@ struct ALIGN_BYTES(8) float3x3_sym
     float xx, xy, xz, yy, yz, zz;
 
     __host__ __device__ constexpr float3x3_sym() : xx(0.f), xy(0.f), xz(0.f), yy(0.f), yz(0.f), zz(0.f) {}
-    __host__ __device__ constexpr float3x3_sym(const float3 x, const float3 y, const float3 z) : xx(x.x), xy(x.y), xz(x.z), yy(y.y), yz(y.z), zz(z.z) { }
+    __host__ __device__ constexpr float3x3_sym(const float3 x, const float3 y, const float3 z) : xx(x.x), xy((x.y + y.x) * .5f), xz((x.z + z.x) * .5f), yy(y.y), yz((z.y + y.z) * .5f), zz(z.z) { }
     __host__ __device__ constexpr float3x3_sym(const float xx, const float xy, const float xz, const float yy, const float yz, const float zz) : xx(xx), xy(xy), xz(xz), yy(yy), yz(yz), zz(zz) { }
     __host__ __device__ constexpr float3x3_sym(const float3x3& to_sym) : xx(to_sym.xx), xy((to_sym.xy + to_sym.yx) * .5f), xz((to_sym.xz + to_sym.zx) * .5f), yy(to_sym.yy), yz((to_sym.yz+ to_sym.zy) * .5f), zz(to_sym.zz) {}
     __inline__ __host__ __device__ float3 diag() const
@@ -228,6 +228,9 @@ struct ALIGN_BYTES(8) float3x3_sym
     }
 };
 
+__inline__ __host__ __device__ float sandwich_product(const float3& contra, const float3x3_sym& metric) {
+    return dot(contra, metric * contra);
+}
 __inline__ __host__ __device__ float trace_contra(const float3x3& contra, const float3x3_sym& metric) {
     return contra.xx * metric.xx + contra.xy * metric.xy +
         contra.yx * metric.xy + contra.xz * metric.xz +

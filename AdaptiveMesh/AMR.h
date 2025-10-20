@@ -1282,6 +1282,55 @@ void metric_derivatives_noncovariant(const tensor2_sym_field& metric_tensor, com
 	cuda_sync();
 }
 
+__global__ void __compute_raised_christoffel_symbols(const tensor2_sym_ptrs metric, const comp_tensor3_sym_ptrs metric_derivs, 
+	const int global_seed, comp_tensor3_sym_ptrs christoffel, const octree_abs_pos* data, const uint substep_index, const uint max_depth) {
+
+	uint3 idx = threadIdx + blockDim * blockIdx;
+	const uint node_idx = idx.z / size_domain;
+
+	const int depth = data[node_idx].depth(); if (depth == -1) { return; }
+	if (!active_depth(substep_index, depth, max_depth)) { return; }
+
+	fast_prng rng = fast_prng(global_seed + idx.x * 2178614);
+	rng.seed ^= rng.generate_int() * idx.y;
+	rng.seed ^= rng.generate_int() * idx.z;
+	idx.z -= node_idx * size_domain;
+
+	int read_write_idx = ((node_idx * size_domain + idx.z) * size_domain + idx.y) * size_domain + idx.x;
+	compressed_float3 xx, xy, xz, yy, yz, zz;
+	
+	xx = metric_derivs.xx[read_write_idx]; // cYxx,i
+	xy = metric_derivs.xy[read_write_idx]; // cYxy,i
+	xz = metric_derivs.xz[read_write_idx]; // ...
+	yy = metric_derivs.yy[read_write_idx];
+	yz = metric_derivs.yz[read_write_idx];
+	zz = metric_derivs.zz[read_write_idx];
+
+	float3x3_sym x = float3x3_sym((float3)xx, (float3)xy, (float3)xz); // automatic symmetrize, cYx(j,i)
+	float3x3_sym y = float3x3_sym((float3)xy, (float3)yy, (float3)yz); // automatic symmetrize, cYy(j,i)
+	float3x3_sym z = float3x3_sym((float3)xz, (float3)yz, (float3)zz); // automatic symmetrize, cYz(j,i)
+	float3x3_sym inv_met = metric.tens(((node_idx * total_size_domain + idx.z) * total_size_domain + idx.y) * total_size_domain
+		+ idx.x + padding_domain * (1u + total_size_domain + total_size_domain * total_size_domain));
+
+	christoffel.xx[read_write_idx] = compressed_float3(inv_met * (make_float3(x.xx, y.xx, z.xx) - ((float3)xx) * .5f), rng);
+	christoffel.xy[read_write_idx] = compressed_float3(inv_met * (make_float3(x.xy, y.xy, z.xy) - ((float3)xy) * .5f), rng);
+	christoffel.xz[read_write_idx] = compressed_float3(inv_met * (make_float3(x.xz, y.xz, z.xz) - ((float3)xz) * .5f), rng);
+	christoffel.yy[read_write_idx] = compressed_float3(inv_met * (make_float3(x.yy, y.yy, z.yy) - ((float3)yy) * .5f), rng);
+	christoffel.yz[read_write_idx] = compressed_float3(inv_met * (make_float3(x.yz, y.yz, z.yz) - ((float3)yz) * .5f), rng);
+	christoffel.zz[read_write_idx] = compressed_float3(inv_met * (make_float3(x.zz, y.zz, z.zz) - ((float3)zz) * .5f), rng);
+}
+
+template <class AMR_data>
+void compute_raised_christoffel_symbols(const tensor2_sym_field& metric, const comp_tensor3_sym_field& metric_derivs,
+	comp_tensor3_sym_field& christoffel, AMR<AMR_data>& amr, cudaStream_t& stream, fast_prng& rng)
+{
+	dim3 threads(threadsA3_v, threadsB3_v, threadsD3_v);
+	dim3 blocks(size_domain / threads.x, size_domain / threads.y,
+		amr.curr_used_slots() * size_domain / threads.z);
+	__compute_raised_christoffel_symbols<<<blocks, threads, 0, stream>>>(metric.ptrs(), metric_derivs.ptrs(), rng.generate_int(),
+		christoffel.ptrs(), amr.positions.gpu_buffer_ptr, amr.timer_helper, amr.read_max_depth());
+}
+
 struct BSSN_AMR_data
 {
 	fast_prng rng;
@@ -1294,6 +1343,7 @@ struct BSSN_AMR_data
 
 	// derivatives
 	comp_tensor3_sym_field cyij_k;
+	comp_tensor3_sym_field cGijk;
 	tensor2_sym_field cRij;
 	comp_tensor2_sym_field didjA; // used as intermediate to start
 	comp_tensor2_sym_field didjW; // used as intermediate to start
@@ -1301,7 +1351,7 @@ struct BSSN_AMR_data
 	BSSN_AMR_data(const uint node_slots, AMR<BSSN_AMR_data>& parent) : parent(parent), streams(),
 		cyij_old(node_slots), cyij_new(node_slots), cyij_k(node_slots, inner_cells_domain), rng(),
 		cRij(node_slots, inner_cells_domain), didjA(node_slots, inner_cells_domain),
-		didjW(node_slots, inner_cells_domain) {}
+		didjW(node_slots, inner_cells_domain), cGijk(node_slots, inner_cells_domain) {}
 
 	void copy_back()
 	{
@@ -1318,6 +1368,7 @@ struct BSSN_AMR_data
 	{
 		cuda_sync();
 		metric_derivatives_noncovariant(cyij_old, cyij_k, didjA, didjW, cRij, parent, streams, rng);
+		compute_raised_christoffel_symbols(cyij_old, cyij_k, cGijk, parent, streams.yield_stream(), rng);
 	}
 	void copy_bounds()
 	{
@@ -1328,6 +1379,7 @@ struct BSSN_AMR_data
 	{
 		cuda_sync();
 		metric_derivatives_noncovariant(cyij_new, cyij_k, didjA, didjW, cRij, parent, streams, rng);
+		compute_raised_christoffel_symbols(cyij_new, cyij_k, cGijk, parent, streams.yield_stream(), rng);
 	}
 	void timestep() { // Basic form of timestep loop; must be in this exact order.
 		do {

@@ -87,13 +87,13 @@ int main()
     long long now2 = clock.now().time_since_epoch().count();
     std::cout << (now2 - now) * 1E-9;
 
-    smart_gpu_cpu_buffer<uint> temp(amr.sim_data.cRij.xx.dedicated_len);
-    save_image(temp, amr.sim_data.cRij.xx, size_domain * size_domain, temp.dedicated_len / (size_domain * size_domain), "test_xx.png");
-    save_image(temp, amr.sim_data.cRij.xy, size_domain * size_domain, temp.dedicated_len / (size_domain * size_domain), "test_xy.png");
-    save_image(temp, amr.sim_data.cRij.xz, size_domain * size_domain, temp.dedicated_len / (size_domain * size_domain), "test_xz.png");
-    save_image(temp, amr.sim_data.cRij.yy, size_domain * size_domain, temp.dedicated_len / (size_domain * size_domain), "test_yy.png");
-    save_image(temp, amr.sim_data.cRij.yz, size_domain * size_domain, temp.dedicated_len / (size_domain * size_domain), "test_yz.png");
-    save_image(temp, amr.sim_data.cRij.zz, size_domain * size_domain, temp.dedicated_len / (size_domain * size_domain), "test_zz.png");
+    smart_gpu_cpu_buffer<uint> temp(amr.sim_data.cGijk.xx.dedicated_len);
+    save_image(temp, amr.sim_data.cGijk.xx, size_domain * size_domain, temp.dedicated_len / (size_domain * size_domain), "test_xx.png");
+    save_image(temp, amr.sim_data.cGijk.xy, size_domain * size_domain, temp.dedicated_len / (size_domain * size_domain), "test_xy.png");
+    save_image(temp, amr.sim_data.cGijk.xz, size_domain * size_domain, temp.dedicated_len / (size_domain * size_domain), "test_xz.png");
+    save_image(temp, amr.sim_data.cGijk.yy, size_domain * size_domain, temp.dedicated_len / (size_domain * size_domain), "test_yy.png");
+    save_image(temp, amr.sim_data.cGijk.yz, size_domain * size_domain, temp.dedicated_len / (size_domain * size_domain), "test_yz.png");
+    save_image(temp, amr.sim_data.cGijk.zz, size_domain * size_domain, temp.dedicated_len / (size_domain * size_domain), "test_zz.png");
 
     while (true)
         _sleep(1000u);

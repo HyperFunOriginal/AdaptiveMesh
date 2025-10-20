@@ -40,7 +40,7 @@ inline __host__ __device__ uint ___rgba(const float val)
 template<>
 inline __host__ __device__ uint ___rgba(const compressed_float3 val)
 {
-    return ___rgba((float3)val);
+    return ___rgba((float3)val + .5f);
 }
 
 template <class T>
