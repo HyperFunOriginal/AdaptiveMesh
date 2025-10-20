@@ -21,14 +21,11 @@ __global__ void __init_temp(float* __restrict__ old_d, float* __restrict__ new_d
     true_position += (make_float3(idx) + .5f - (total_size_domain * .5f)) * (outer_size / size_domain) / (1u << depth);
     const uint pos = (node_idx * cells_domain) + (idx.z * total_size_domain + idx.y) * total_size_domain + idx.x;
     
-    //old_d[pos] = 1.f / length(true_position);
-    //new_d[pos] = 1.f / length(true_position);
+    //old_d[pos] = mul / length(true_position);
+    //new_d[pos] = mul / length(true_position);
     
-    old_d[pos] = mul + sinf(length(true_position)) * .25f;
-    new_d[pos] = mul + sinf(length(true_position)) * .25f;
-
-    //old_d[pos] = 1.f / (1.f + mul / dot(true_position, true_position));
-    //new_d[pos] = 1.f / (1.f + mul / dot(true_position, true_position));
+    old_d[pos] = mul + sinf(length(true_position)) * .33f;
+    new_d[pos] = mul + sinf(length(true_position)) * .33f;
 }
 template <class T>
 void init_temp(smart_gpu_buffer<float>& old_d, smart_gpu_buffer<float>& new_d, AMR<T>& amr, float mul)

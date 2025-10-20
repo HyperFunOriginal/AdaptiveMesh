@@ -255,6 +255,7 @@ __inline__ __host__ __device__ void tracefree_covar(float3x3& covar, const float
 #define IEEE754_FLOAT_EXPONENT_BITS     8u
 #define IEEE754_FLOAT_EXPONENT_OFFSET   127u
 
+#define STOCHASTIC_QUANTISATION_FACTOR 0.95f
 #define MANTISSA_BITS 8u
 #define SHARED_EXPONENT (32u - 3u * (MANTISSA_BITS + 1u))
 #define SHARED_EXPONENT_OFFSET ((1u << (SHARED_EXPONENT - 1u)) - 1u)
@@ -361,9 +362,9 @@ public:
         result.y *= ((1u << SHARED_EXPONENT_OFFSET) / compr_relative_error) / (float(1u << data));
         result.z *= ((1u << SHARED_EXPONENT_OFFSET) / compr_relative_error) / (float(1u << data)); 
 
-        result.x += rng.generate_float();
-        result.y += rng.generate_float();
-        result.z += rng.generate_float();
+        result.x += rng.generate_float() * STOCHASTIC_QUANTISATION_FACTOR;
+        result.y += rng.generate_float() * STOCHASTIC_QUANTISATION_FACTOR;
+        result.z += rng.generate_float() * STOCHASTIC_QUANTISATION_FACTOR;
 
         result = clamp(result, 1.f - 2.f / compr_relative_error, 2.f / compr_relative_error - 1.f);
         data <<= EXP_POS; data |= uint(fabsf(result.x) + .5f) | ((result.x < 0.f) << SIGN1_POS);
@@ -409,6 +410,7 @@ public:
 #undef IEEE754_FLOAT_MANTISSA_BITS  
 #undef IEEE754_FLOAT_EXPONENT_BITS  
 #undef IEEE754_FLOAT_EXPONENT_OFFSET
+#undef STOCHASTIC_QUANTISATION_FACTOR
 
 __inline__ __host__ __device__ void compress(const float3x3& m, compressed_float3* x, compressed_float3* y, compressed_float3* z)
 {
