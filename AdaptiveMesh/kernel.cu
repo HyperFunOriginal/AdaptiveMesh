@@ -25,8 +25,8 @@ __global__ void __init_temp(float* __restrict__ old_d, float* __restrict__ new_d
     //old_d[pos] = mul / length(true_position);
     //new_d[pos] = mul / length(true_position);
 
-    old_d[pos] = mul / (dot(true_position,true_position) + 1.f);
-    new_d[pos] = mul / (dot(true_position,true_position) + 1.f);
+    old_d[pos] = mul * 10.f / (dot(true_position,true_position) + 10.f);
+    new_d[pos] = mul * 10.f / (dot(true_position,true_position) + 10.f);
     
     //old_d[pos] = mul + sinf(length(true_position)) * .33f;
     //new_d[pos] = mul + sinf(length(true_position)) * .33f;
@@ -44,11 +44,25 @@ void init_temp(smart_gpu_buffer<float>& old_d, smart_gpu_buffer<float>& new_d, A
 void wave_test()
 {
     AMR<wave_AMR_data> amr = AMR<wave_AMR_data>(128u);
-    init_temp(amr.sim_data.old_field, amr.sim_data.new_field, amr, 1.f);
-    init_temp(amr.sim_data.old_dt, amr.sim_data.new_dt, amr, 5.f);
+    init_temp(amr.sim_data.old_field, amr.sim_data.new_field, amr, 3.f);
+
+    int children[8];
+    for (uint c = 0; c < 8; c++)
+    {
+        children[c] = amr.read_first_free_slot();
+        amr.add_node(0, c);
+    }
+
+    for (uint d = 1; d < 6; d++)
+        for (uint c = 0; c < 8; c++)
+        {
+            uint new_idx = amr.read_first_free_slot();
+            amr.add_node(children[c], (~c) & 7u);
+            children[c] = new_idx;
+        }
 
     // dumb init for testing
-    smart_gpu_cpu_buffer<uint> temp(cells_domain * 48u);
+    smart_gpu_cpu_buffer<uint> temp(cells_domain * 60u);
     save_image(temp, amr.sim_data.old_field, total_size_domain * total_size_domain, temp.dedicated_len / (total_size_domain * total_size_domain), "test_0.png");
     
     for (uint i = 1; i < 200; i++)
