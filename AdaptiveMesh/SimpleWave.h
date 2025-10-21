@@ -2,6 +2,7 @@
 #define WAVETEST_H
 
 #include "AMR.h"
+__device__ constexpr float viscosity = 0.01f;
 
 __global__ void __predictor_step(const float* old_field, const compressed_float3* derivs, 
 	const compressed_float3* hess_diag, float* new_field, const octree_abs_pos* data, const uint substep_index, const uint max_depth) {
@@ -15,7 +16,7 @@ __global__ void __predictor_step(const float* old_field, const compressed_float3
 	int read_write_idx = ((node_idx * size_domain + idx.z) * size_domain + idx.y) * size_domain + idx.x;
 
 	float x_deriv = ((float3)derivs[read_write_idx]).x;
-	float laplacian = dot((float3)hess_diag[read_write_idx], make_float3(.01f));
+	float laplacian = dot((float3)hess_diag[read_write_idx], make_float3(viscosity));
 	read_write_idx = ((node_idx * total_size_domain + idx.z) * total_size_domain + idx.y) * total_size_domain
 		+ idx.x + padding_domain * (1u + total_size_domain + total_size_domain * total_size_domain);
 	
@@ -35,7 +36,7 @@ __global__ void __corrector_step(const float* old_field, const compressed_float3
 	int read_write_idx = ((node_idx * size_domain + idx.z) * size_domain + idx.y) * size_domain + idx.x;
 
 	float x_deriv = ((float3)derivs[read_write_idx]).x;
-	float laplacian = dot((float3)hess_diag[read_write_idx], make_float3(.01f));
+	float laplacian = dot((float3)hess_diag[read_write_idx], make_float3(viscosity));
 	read_write_idx = ((node_idx * total_size_domain + idx.z) * total_size_domain + idx.y) * total_size_domain
 		+ idx.x + padding_domain * (1u + total_size_domain + total_size_domain * total_size_domain);
 
@@ -162,7 +163,7 @@ float2 amr_criterion(const smart_gpu_buffer<compressed_float3>& first_deriv, con
 		amr_crit.cpu_buffer_ptr[i * 8u + 7u] = amr_crit.cpu_buffer_ptr[i * size_domain * size_domain + ((size_domain >> 1u) + (size_domain * size_domain >> 2u) + (size_domain * size_domain >> 1u))];
 		for (int j = 0; j < 8; j++)
 			if (!isnan(amr_crit.cpu_buffer_ptr[i * 8u + j]))
-				avg_pressure_2 += amr_crit.cpu_buffer_ptr[i * 8u + j];
+				avg_pressure_2 += clamp(amr_crit.cpu_buffer_ptr[i * 8u + j], 0.f, 2.f);
 	}
 	for (uint i = 0, s = amr.curr_used_slots(); i < s; i++)
 	{
@@ -178,7 +179,7 @@ float2 amr_criterion(const smart_gpu_buffer<compressed_float3>& first_deriv, con
 		
 		if (!isnan(temp))
 		{
-			avg_pressure_1 += temp;
+			avg_pressure_1 += clamp(temp, 0.f, 2.f);
 			active_cells++;
 		}
 	}
@@ -227,28 +228,22 @@ struct wave_AMR_data
 	void modify_nodes()
 	{
 		float2 avg_crit = amr_criterion(first_derivs, hessian_diag, criterion, parent); // computes all refinement pressure and yields average
-		if (parent.curr_used_slots() == 1u) { avg_crit.x = avg_crit.y = .13f; }
-																						
+		if (parent.curr_used_slots() == 1u) { avg_crit.x = avg_crit.y = .15f; }
 		// perform triage
 		float urgency_pressure = float(parent.curr_used_slots() - 1) / parent.max_slots;
+		std::cout << "Average Refinement Pressure " + std::to_string(avg_crit.y * 3.f / (1.f - urgency_pressure)) + ".\n";
 		for (int i = 1, s = parent.curr_used_slots(); i < s; i++) // root cannot be removed
 		{
 			float depth_ratio = float(parent.positions.cpu_buffer_ptr[i].depth()) / parent.read_max_depth(); if (depth_ratio <= 0.f) { continue; }
-			float weight = clamp(parent.lifetime.cpu_buffer_ptr[i] * .1f - .2f, 0.f, 1.f) * urgency_pressure * urgency_pressure * avg_crit.x * depth_ratio; // must run at least 2 timesteps to copy back down info, else domain is wasted.
+			float weight = clamp(parent.lifetime.cpu_buffer_ptr[i] * .1f - .2f, 0.f, 1.f) * urgency_pressure * urgency_pressure * avg_crit.x * sqrtf(depth_ratio); // must run at least 2 timesteps to copy back down info, else domain is wasted.
 			if (criterion.cpu_buffer_ptr[s * 8u + i] < weight) // ignores if nan, i.e. no domain
-			{
-				std::cout << "Removed node " + std::to_string(i) + " with factor " + std::to_string(criterion.cpu_buffer_ptr[s * 8u + i] / weight) + ".\n";
 				parent.remove_node(i);
-			}
 		}
 		for (uint i = 0, s = parent.curr_used_slots() * 8u; i < s; i++)
 		{
-			float weight = avg_crit.y * 3.5f / (1.f - urgency_pressure);
+			float weight = avg_crit.y * 3.f / (1.f - urgency_pressure);
 			if (criterion.cpu_buffer_ptr[i] > weight && (parent.children_idx_b.cpu_buffer_ptr[i] == -1))
-			{
-				std::cout << "Created child with parent " + std::to_string(i>>3u) + ", child " + std::to_string(i & 7) + " with factor " + std::to_string(criterion.cpu_buffer_ptr[i] / weight) + ".\n";
 				parent.add_node(i >> 3u, i & 7u);
-			}
 		}
 	}
 	void predictor()

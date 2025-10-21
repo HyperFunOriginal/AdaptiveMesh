@@ -1309,6 +1309,59 @@ void yield_first_second_derivs(const smart_gpu_buffer<float>& field, smart_gpu_b
 	mixed_partials(field, hessian.off_diag, amr, threads.yield_stream(), rng);
 }
 
+#define DISPLAY_BOUNDING_BOXES
+__global__ void __rasterise_to_image(const float* data, float4* raster, 
+	const int* children_idx, const uint width, const uint height, const uint domain_size,
+	const uint domain_padding, const float z_slice) {
+	uint3 idx = threadIdx + blockDim * blockIdx;
+	if (idx.x >= width || idx.y >= height) { return; }
+	
+	float3 target_pos = make_float3(float(idx.x) / width - .5f, float(idx.y) / height - .5f, z_slice);
+	uint curr_idx = 0; uint offset = (target_pos.x > 0.f) | ((target_pos.y > 0.f) << 1u) | ((target_pos.z > 0.f) << 2u);
+	int child_idx = children_idx[curr_idx * 8u + offset]; uint depth = 0u;
+	while (child_idx != -1)
+	{
+		curr_idx = child_idx; target_pos = fracf(target_pos * 2.f) - .5f;
+		offset = (target_pos.x > 0.f) | ((target_pos.y > 0.f) << 1u) | ((target_pos.z > 0.f) << 2u);
+		child_idx = children_idx[curr_idx * 8u + offset]; depth++;
+	}
 
+#ifdef DISPLAY_BOUNDING_BOXES
+	float threshold = .5f - 2.f * float(1u << depth) / width;
+	if (fmaxf(fabsf(target_pos.x), fabsf(target_pos.y)) >= threshold)
+	{
+		raster[idx.x + idx.y * width] = make_float4(1.f, 0.f, 0.f, 1.f);
+		return;
+	}
+#undef DISPLAY_BOUNDING_BOXES
+#endif
+
+	target_pos = (target_pos + .5f) * domain_size + domain_padding;
+#ifdef USE_LAGRANGE_POLYNOMIAL
+	uint3 read_idx = make_uint3(target_pos + .5f);
+#else
+	uint3 read_idx = make_uint3(target_pos);
+#endif // USE_LAGRANGE_POLYNOMIAL
+
+	target_pos.x -= read_idx.x; target_pos.y -= read_idx.y; target_pos.z -= read_idx.z;
+	uint read_idx_n = curr_idx * ((domain_padding << 1u) + domain_size) + read_idx.z;
+	(read_idx_n *= ((domain_padding << 1u) + domain_size)) += read_idx.y;
+	(read_idx_n *= ((domain_padding << 1u) + domain_size)) += read_idx.x;
+	float value = __interpolate_dat(data, target_pos, read_idx, read_idx_n) + .5f;
+
+	raster[idx.x + idx.y * width] = make_float4(value, value, value, 1.f);
+}
+
+template <class AMR_data>
+void rasterise_to_image(const smart_gpu_buffer<float>& data, smart_gpu_buffer<float4>& raster_image,
+	AMR<AMR_data>& amr, const uint width, const uint height, const float z_slice = 1E-9f,
+	const uint domain_size = size_domain, const uint domain_padding = padding_domain) {
+
+	amr.copy_to_gpu();
+	dim3 threads(min_uint(width, 32u), min_uint(height, 32u), 1u);
+	dim3 blocks(ceilf(float(width) / threads.x), ceilf(float(height) / threads.y), 1u);
+	__rasterise_to_image<<<blocks, threads>>>(data.gpu_buffer_ptr, raster_image.gpu_buffer_ptr, 
+		amr.children_idx_b.gpu_buffer_ptr, width, height, domain_size, domain_padding, z_slice);
+}
 
 #endif
