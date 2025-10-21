@@ -14,7 +14,7 @@ __device__ constexpr uint total_size_domain = size_domain + 2u * padding_domain;
 __device__ constexpr uint inner_cells_domain = size_domain * size_domain * size_domain;
 __device__ constexpr uint cells_domain = total_size_domain * total_size_domain * total_size_domain;
 __device__ constexpr float outer_dx = outer_size / size_domain;
-__device__ constexpr float outer_dt = outer_dx * .1f; // CFL 0.4
+__device__ constexpr float outer_dt = outer_dx * .4f; // CFL 0.4
 
 __device__ constexpr float smallest_dx = outer_dx / (1u << depth_limit);
 __device__ constexpr float smallest_dt = outer_dt / (1u << depth_limit);
@@ -123,6 +123,7 @@ struct AMR
 	smart_gpu_cpu_buffer<int> children_idx_b;
 	smart_gpu_cpu_buffer<octree_abs_pos> positions;
 	smart_gpu_cpu_buffer<domain_boundary> boundaries;
+	smart_cpu_buffer<uint> lifetime;
 
 private:
 	bool dirty;
@@ -177,9 +178,15 @@ public:
 	uint timer_helper;
 
 	void increment_timer() {
+		for (uint i = 0; i <= final_used_slot; i++)
+		{
+			int depth = positions.cpu_buffer_ptr[i].depth();
+			if (depth == -1) { continue; }
+			lifetime.cpu_buffer_ptr[i] += ((timer_helper & ((1u << (max_depth - depth)) - 1u)) == 0u);
+		}
 		(++timer_helper) &= ((1u << max_depth) - 1u);
 	}
-	AMR(const uint node_slots) : parent_idx_b(node_slots), children_idx_b(node_slots * 8u),
+	AMR(const uint node_slots) : parent_idx_b(node_slots), lifetime(node_slots), children_idx_b(node_slots * 8u),
 		max_depth(0), positions(node_slots), first_free_slot(1), max_slots(node_slots), 
 		sim_data(node_slots, *this), boundaries(node_slots * 6u), final_used_slot(0u), dirty(true) {
 
@@ -203,6 +210,7 @@ public:
 		if ((first_free_slot >= max_slots) || (children_idx_b.cpu_buffer_ptr[parent_idx * 8u + offset] != -1)) { return; }
 		if (positions.cpu_buffer_ptr[parent_idx].depth() >= depth_limit) { return; }
 		
+		lifetime.cpu_buffer_ptr[first_free_slot] = 0u;
 		parent_idx_b.cpu_buffer_ptr[first_free_slot] = parent_idx;
 		children_idx_b.cpu_buffer_ptr[parent_idx * 8u + offset] = first_free_slot;
 		positions.cpu_buffer_ptr[first_free_slot].set_child(positions.cpu_buffer_ptr[parent_idx], offset);

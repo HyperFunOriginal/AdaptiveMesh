@@ -32,7 +32,7 @@ inline __host__ __device__ uint ___rgba(const float val)
 {
     if (isnan(val))
         return 4294902015u;
-    const float temp = clamp(val, 0.f, 1.f) * 255.f;
+    const float temp = clamp(val + .5f, 0.f, 1.f) * 255.f;
     const uint4 v = make_uint4(temp, temp, temp, 255u);
     return (v.w << 24) | (v.z << 16) | (v.y << 8) | v.x;
 }
@@ -40,7 +40,7 @@ inline __host__ __device__ uint ___rgba(const float val)
 template<>
 inline __host__ __device__ uint ___rgba(const compressed_float3 val)
 {
-    return ___rgba((float3)val + .5f);
+    return ___rgba((float3)val);
 }
 
 template <class T>
